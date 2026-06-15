@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Trash2, RotateCcw, EyeOff, Plus, Pencil } from 'lucide-react';
 import { useTemplates } from '@/templates/store';
 import { TemplateCanvas } from '@/components/TemplateCanvas';
+import { getFormatNameStyle } from '@/templates/types';
 import { AdminTemplateEditor } from './AdminTemplateEditor';
 import { AdminUploader } from './AdminUploader';
 import { AdminDiagnostic } from './AdminDiagnostic';
@@ -99,7 +100,7 @@ export function AdminDashboard() {
                           template={t}
                           employeeName=""
                           format="square"
-                          nameStyle={t.defaultNameStyle}
+                          nameStyle={getFormatNameStyle(t.defaultNameStyle, 'square')}
                           pixelWidth={48}
                         />
                         {t.isHidden && (

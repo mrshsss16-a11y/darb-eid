@@ -174,7 +174,56 @@ export interface NameStyle {
   weight?: 300 | 400 | 500 | 700 | 900;
   /** Optional text shadow for legibility on busy artwork. */
   shadow?: boolean;
+  /** Optional format-specific overrides. */
+  formats?: {
+    square?: Partial<NameStyle>;
+    story?: Partial<NameStyle>;
+    post?: Partial<NameStyle>;
+  };
 }
+
+export function getFormatNameStyle(baseStyle: NameStyle, format: CanvasFormat): NameStyle {
+  if (!baseStyle) return baseStyle;
+  const overrides = baseStyle.formats?.[format];
+  if (!overrides) return baseStyle;
+  const { formats: _, ...restOverrides } = overrides as any;
+  return {
+    ...baseStyle,
+    ...restOverrides,
+  };
+}
+
+export function updateFormatNameStyle(
+  baseStyle: NameStyle,
+  format: CanvasFormat,
+  updatedFields: Partial<NameStyle>
+): NameStyle {
+  const formats = baseStyle.formats || {};
+  const currentOverride = formats[format] || {};
+  const { formats: _, ...fieldsToSave } = updatedFields;
+
+  const nextFormats = {
+    ...formats,
+    [format]: {
+      ...currentOverride,
+      ...fieldsToSave,
+    },
+  };
+
+  if (format === 'square') {
+    return {
+      ...baseStyle,
+      ...fieldsToSave,
+      formats: nextFormats,
+    };
+  }
+
+  return {
+    ...baseStyle,
+    formats: nextFormats,
+  };
+}
+
 
 export interface PositionPreset {
   id: 'bottom' | 'center' | 'top';

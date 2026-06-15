@@ -18,7 +18,7 @@ interface Props {
 export function OccasionFilter({ value, onChange, counts }: Props) {
   const allCount = counts?.all;
   return (
-    <div className="flex gap-2 overflow-x-auto pb-2 -mx-2 px-2 snap-x">
+    <div className="flex gap-2 overflow-x-auto pb-2 -mx-2 px-2 snap-x no-scrollbar">
       <Chip
         active={value === null}
         onClick={() => onChange(null)}

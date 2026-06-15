@@ -242,15 +242,31 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
     async (id: string, patch: Override) => {
       const seedExists = seedTemplates.some((t) => t.id === id);
 
-      let nextOverrides = { ...overrides };
       if (seedExists) {
+        const currentOverride = overrides[id] || {};
+        const nextOverride = { ...currentOverride, ...patch };
+
         setOverrides((prev) => {
-          const next = { ...prev, [id]: { ...prev[id], ...patch } };
+          const next = { ...prev, [id]: nextOverride };
           saveOverrides(next);
-          nextOverrides = next;
           return next;
         });
+
+        // Sync with Supabase overrides table
+        try {
+          await supabase
+            .from('overrides')
+            .upsert({
+              id,
+              title: nextOverride.title ?? null,
+              default_name_style: nextOverride.defaultNameStyle ?? null,
+              hidden: nextOverride.hidden ?? false,
+            });
+        } catch (err) {
+          console.error('Failed to save override to Supabase:', err);
+        }
       } else {
+        // It's a custom template, update templates table
         setStoredExtra((prev) => {
           const i = prev.findIndex((t) => t.id === id);
           if (i === -1) return prev;
@@ -263,21 +279,19 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
           saveStored(next);
           return next;
         });
-      }
 
-      // Sync with Supabase
-      try {
-        const itemOverride = nextOverrides[id] || {};
-        await supabase
-          .from('overrides')
-          .upsert({
-            id,
-            title: patch.title ?? itemOverride.title ?? null,
-            default_name_style: patch.defaultNameStyle ?? itemOverride.defaultNameStyle ?? null,
-            hidden: patch.hidden ?? itemOverride.hidden ?? false,
-          });
-      } catch (err) {
-        console.error('Failed to save override to Supabase:', err);
+        // Sync with Supabase templates table
+        try {
+          await supabase
+            .from('templates')
+            .update({
+              title: patch.title,
+              default_name_style: patch.defaultNameStyle,
+            })
+            .eq('id', id);
+        } catch (err) {
+          console.error('Failed to update custom template in Supabase:', err);
+        }
       }
     },
     [overrides],
@@ -310,6 +324,7 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
   const deleteTemplate = useCallback(async (id: string) => {
     const isSeed = seedTemplates.some((t) => t.id === id);
     if (isSeed) {
+      const currentOverride = overrides[id] || {};
       setOverrides((prev) => {
         const next = { ...prev, [id]: { ...prev[id], hidden: true } };
         saveOverrides(next);
@@ -320,7 +335,12 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
       try {
         await supabase
           .from('overrides')
-          .upsert({ id, hidden: true });
+          .upsert({
+            id,
+            title: currentOverride.title ?? null,
+            default_name_style: currentOverride.defaultNameStyle ?? null,
+            hidden: true,
+          });
       } catch (err) {
         console.error('Failed to sync hidden override to Supabase:', err);
       }
@@ -341,9 +361,10 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
         console.error('Failed to delete custom template from Supabase:', err);
       }
     }
-  }, []);
+  }, [overrides]);
 
   const restoreTemplate = useCallback(async (id: string) => {
+    const currentOverride = overrides[id] || {};
     setOverrides((prev) => {
       if (!prev[id]?.hidden) return prev;
       const next = { ...prev, [id]: { ...prev[id], hidden: false } };
@@ -355,11 +376,16 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
     try {
       await supabase
         .from('overrides')
-        .upsert({ id, hidden: false });
+        .upsert({
+          id,
+          title: currentOverride.title ?? null,
+          default_name_style: currentOverride.defaultNameStyle ?? null,
+          hidden: false,
+        });
     } catch (err) {
       console.error('Failed to restore override to Supabase:', err);
     }
-  }, []);
+  }, [overrides]);
 
   const resetAll = useCallback(async () => {
     saveOverrides({});

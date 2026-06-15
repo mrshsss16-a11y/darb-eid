@@ -74,6 +74,24 @@ export function resolveHero(key: OccasionKey, override: HeroOverride | undefined
   };
 }
 
+const HERO_STORAGE_KEY = 'darb-hero-overrides';
+
+function loadLocalHeroOverrides(): Overrides {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(HERO_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Overrides) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalHeroOverrides(o: Overrides) {
+  try {
+    window.localStorage.setItem(HERO_STORAGE_KEY, JSON.stringify(o));
+  } catch {}
+}
+
 export function useHeroOverrides() {
   const [overrides, setOverrides] = useState<Overrides>({});
   const [hydrated, setHydrated] = useState(false);
@@ -88,8 +106,31 @@ export function useHeroOverrides() {
 
         if (!active) return;
 
+        const localOverrides = loadLocalHeroOverrides();
+
         if (data && !error) {
           console.log('[heroCustomization] loadHero: loaded', data.length, 'rows from Supabase');
+          
+          // Migrate local storage to Supabase if Supabase is empty but local has data
+          if (data.length === 0 && Object.keys(localOverrides).length > 0) {
+            const toInsert = Object.entries(localOverrides).map(([k, o]) => ({
+              occasion_key: k,
+              eyebrow: o.eyebrow ?? null,
+              title: o.title ?? null,
+              title_accent: o.titleAccent ?? null,
+              subtitle: o.subtitle ?? null,
+              cta: o.cta ?? null,
+              color: o.color ?? null,
+              orb_a: o.orbA ?? null,
+              orb_b: o.orbB ?? null,
+              bg: o.bg ?? null,
+              bg_image: o.bgImage ?? null,
+              bg_overlay_color: o.bgOverlayColor ?? null,
+              bg_overlay_opacity: o.bgOverlayOpacity ?? null,
+            }));
+            await supabase.from('hero_overrides').insert(toInsert);
+          }
+
           const parsed: Overrides = {};
           data.forEach((row) => {
             parsed[row.occasion_key as OccasionKey] = {
@@ -108,12 +149,15 @@ export function useHeroOverrides() {
             };
           });
           setOverrides(parsed);
+          saveLocalHeroOverrides(parsed);
         } else {
-          setOverrides({});
+          setOverrides(localOverrides);
         }
       } catch (err) {
         console.error('Failed to load hero overrides from Supabase:', err);
-        if (active) setOverrides({});
+        if (active) {
+          setOverrides(loadLocalHeroOverrides());
+        }
       } finally {
         if (active) setHydrated(true);
       }
@@ -152,8 +196,12 @@ export function useHeroOverrides() {
         if (isDeleted) {
           delete merged[key];
         } else {
-          merged[key] = patch;
+          merged[key] = {
+            ...prev[key],
+            ...patch,
+          };
         }
+        saveLocalHeroOverrides(merged);
         return merged;
       });
 
@@ -206,6 +254,7 @@ export function useHeroOverrides() {
     setOverrides((prev) => {
       const next = { ...prev };
       delete next[key];
+      saveLocalHeroOverrides(next);
       return next;
     });
 
@@ -228,6 +277,7 @@ export function useHeroOverrides() {
   }, []);
 
   const resetAll = useCallback(async () => {
+    saveLocalHeroOverrides({});
     setOverrides({});
 
     // Sync with Supabase

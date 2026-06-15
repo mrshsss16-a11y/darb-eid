@@ -6,7 +6,7 @@ import QRCode from 'qrcode';
 import { ArrowRight, Download, Share2, Loader2, QrCode, Image as ImageIcon } from 'lucide-react';
 import { useTemplates, getSeedTemplate } from '@/templates/store';
 import type { CanvasFormat, NameStyle } from '@/templates/types';
-import { FORMAT_DIMENSIONS } from '@/templates/types';
+import { FORMAT_DIMENSIONS, getFormatNameStyle } from '@/templates/types';
 import { TemplateCanvas } from '@/components/TemplateCanvas';
 import { FormatSwitch } from '@/components/editor/FormatSwitch';
 import { exportNodeAsImage, whatsappShareUrl, type ExportFormat } from '@/utils/exportImage';
@@ -188,7 +188,7 @@ export function EditorClient({ templateId }: Props) {
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6 lg:gap-10">
         {/* PREVIEW */}
-        <div>
+        <div className="order-2 lg:order-1">
           <div className="card-surface p-4 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
               <div>
@@ -211,7 +211,7 @@ export function EditorClient({ templateId }: Props) {
                 template={template}
                 employeeName={name}
                 format={format}
-                nameStyle={template.defaultNameStyle}
+                nameStyle={getFormatNameStyle(template.defaultNameStyle, format)}
                 qrDataUrl={qrDataUrl}
                 pixelWidth={previewWidth}
               />
@@ -235,42 +235,48 @@ export function EditorClient({ templateId }: Props) {
                 template={template}
                 employeeName={name}
                 format={format}
-                nameStyle={template.defaultNameStyle}
+                nameStyle={getFormatNameStyle(template.defaultNameStyle, format)}
                 qrDataUrl={qrDataUrl}
                 // No pixelWidth → renders at native dims (1080×1080 etc.)
               />
             </div>
 
-            {/* Action row */}
-            <div className="mt-6 flex flex-wrap items-center gap-3">
+            {/* Action row - premium responsive grid */}
+            <div className="mt-6 space-y-3">
               <button
                 onClick={() => onExport('png')}
                 disabled={busy !== null}
-                className="btn-primary"
+                className="btn-primary w-full py-3.5 text-base flex items-center justify-center shadow-lg hover:shadow-xl transition-all"
               >
                 {busy === 'png' ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
                   <Download className="h-5 w-5" />
                 )}
-                <span>تحميل PNG</span>
+                <span>تحميل بطاقة عالية الدقة (PNG)</span>
               </button>
-              <button
-                onClick={() => onExport('jpg')}
-                disabled={busy !== null}
-                className="btn-ghost"
-              >
-                {busy === 'jpg' ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <ImageIcon className="h-5 w-5" />
-                )}
-                <span>تحميل JPG</span>
-              </button>
-              <button onClick={onShare} className="btn-outline">
-                <Share2 className="h-5 w-5" />
-                <span>مشاركة على واتساب</span>
-              </button>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => onExport('jpg')}
+                  disabled={busy !== null}
+                  className="btn-ghost py-3.5 flex items-center justify-center text-sm"
+                >
+                  {busy === 'jpg' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ImageIcon className="h-4 w-4" />
+                  )}
+                  <span>تحميل JPG</span>
+                </button>
+                <button
+                  onClick={onShare}
+                  className="btn-outline py-3.5 flex items-center justify-center text-sm hover:bg-brand-50 dark:hover:bg-brand-900/10"
+                >
+                  <Share2 className="h-4 w-4" />
+                  <span>مشاركة واتساب</span>
+                </button>
+              </div>
             </div>
 
             {shareMsg && (
@@ -282,7 +288,7 @@ export function EditorClient({ templateId }: Props) {
         </div>
 
         {/* SIDE PANEL */}
-        <div className="space-y-4">
+        <div className="order-1 lg:order-2 space-y-4">
           {/* Name */}
           <div className="card-surface p-5 sm:p-6">
             <label

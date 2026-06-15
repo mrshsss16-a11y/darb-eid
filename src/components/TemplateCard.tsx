@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { TemplateCanvas } from './TemplateCanvas';
 import type { Template } from '@/templates/types';
+import { getFormatNameStyle } from '@/templates/types';
 
 interface Props {
   template: Template;
@@ -34,7 +35,7 @@ export function TemplateCard({ template, index }: Props) {
               template={template}
               employeeName=""
               format="square"
-              nameStyle={template.defaultNameStyle}
+              nameStyle={getFormatNameStyle(template.defaultNameStyle, 'square')}
               pixelWidth={360}
             />
           </div>

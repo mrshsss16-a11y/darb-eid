@@ -13,7 +13,7 @@ import { compressImageFile, formatBytes } from '@/utils/imageProcessing';
  */
 export function AdminHeroEditor() {
   const { occasionKey: activeKey, setActive } = useActiveOccasion();
-  const { setOverride, resetOccasion, getResolved, hydrated } = useHeroOverrides();
+  const { setOverride, getResolved, hydrated } = useHeroOverrides();
 
   // Which occasion are we currently editing? Defaults to the active site mode
   // so the editing context matches what the public will see.
@@ -138,24 +138,6 @@ export function AdminHeroEditor() {
     }
   }, [editingKey, form, setOverride]);
 
-  const onReset = useCallback(async () => {
-    if (!window.confirm('سيتم إرجاع الواجهة لإعداداتها الافتراضية (يشمل حذف الخلفية المرفوعة). متابعة؟')) return;
-    const result = await resetOccasion(editingKey);
-    if (!result.ok) {
-      setSaveError(result.error || 'فشل حذف التخصيص من قاعدة البيانات');
-      return;
-    }
-    formDirtyRef.current = false;
-    const o = OCCASIONS.find((x) => x.key === editingKey)!;
-    setForm({
-      eyebrow: o.hero.eyebrow, title: o.hero.title, titleAccent: o.hero.titleAccent,
-      subtitle: o.hero.subtitle, cta: o.hero.cta,
-      color: o.color, orbA: o.orbColors[0], orbB: o.orbColors[1], bg: o.bg,
-      bgImage: '', bgOverlayColor: '#FFFFFF', bgOverlayOpacity: 0.7,
-    });
-    setSaveError(null);
-  }, [editingKey, resetOccasion]);
-
   const onSetAsActive = () => setActive(editingKey);
 
   return (
@@ -183,10 +165,6 @@ export function AdminHeroEditor() {
               تم الحفظ ✓
             </span>
           )}
-          <button onClick={onReset} className="btn-ghost text-sm" title="استعادة الإعداد الافتراضي" disabled={saving}>
-            <RotateCcw className="h-4 w-4" />
-            <span>إعادة تعيين</span>
-          </button>
           <button onClick={onSave} className="btn-primary text-sm" disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             <span>{saving ? 'جارٍ الحفظ…' : 'حفظ'}</span>
