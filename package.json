@@ -1,0 +1,35 @@
+{
+  "name": "darb-eid-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Internal Darb employee platform for creating Eid greeting cards",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "clsx": "2.1.1",
+    "framer-motion": "11.3.19",
+    "html-to-image": "1.11.11",
+    "lucide-react": "0.426.0",
+    "next": "14.2.35",
+    "qrcode": "1.5.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.14",
+    "@types/qrcode": "1.5.5",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "autoprefixer": "10.4.20",
+    "eslint": "8.57.0",
+    "eslint-config-next": "14.2.5",
+    "postcss": "8.4.41",
+    "tailwindcss": "3.4.9",
+    "typescript": "5.5.4"
+  }
+}

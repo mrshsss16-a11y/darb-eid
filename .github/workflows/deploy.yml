@@ -1,0 +1,67 @@
+name: Deploy to GitHub Pages
+
+# Runs on every push to main + when triggered manually from the Actions tab.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Required for GitHub Pages OIDC deploys.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deployment at a time. New commits cancel old in-progress deploys
+# only if they haven't started running yet.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        with:
+          static_site_generator: next
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build static export
+        env:
+          # GitHub Pages serves at /REPO_NAME/, so set the basePath to match.
+          # Special case: USERNAME.github.io repos publish at the root, no prefix.
+          NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          NEXT_PUBLIC_SITE_URL: https://www.darbstations.com.sa
+          NEXT_PUBLIC_ADMIN_PASSWORD: ${{ secrets.NEXT_PUBLIC_ADMIN_PASSWORD || 'darb2025' }}
+          NEXT_PUBLIC_SHARE_TEXT: معايدة عيد الأضحى المبارك من فريق درب
+        run: npm run build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

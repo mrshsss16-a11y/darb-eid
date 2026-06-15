@@ -1,0 +1,216 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =============================================================
+   DARB EID PLATFORM — Global styles
+   -------------------------------------------------------------
+   - Loads Arabic fonts (Tajawal + Cairo)
+   - Defines CSS variables for theme tokens
+   - Sets RTL direction at the root
+   ============================================================= */
+
+/* ------------------------------------------------------------------
+   FONT STACK
+   ------------------------------------------------------------------
+   Priority order (each falls back to the next if not loaded):
+     1. DIN Next Arabic  — licensed Monotype font. Drop the .woff2 files
+        into /public/fonts/ as described below to activate it.
+     2. IBM Plex Sans Arabic — free, DIN-like geometric sans (Google Fonts).
+        Loaded automatically.
+     3. Cairo / Tajawal — long-standing Google-hosted Arabic fonts.
+   ------------------------------------------------------------------ */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Tajawal:wght@300;400;500;700;900&family=Cairo:wght@400;500;600;700;900&display=swap');
+
+/* DIN Next Arabic — local @font-face. The browser silently skips this block
+   if the files don't exist in /public/fonts/, and the next font in the
+   stack takes over. To enable:
+     1. Obtain the DIN Next Arabic font files (commercial license required
+        from Monotype: https://www.monotype.com/fonts/din-next-arabic).
+     2. Place them in /public/fonts/ with EXACTLY these filenames:
+          DINNextArabic-Light.woff2
+          DINNextArabic-Regular.woff2
+          DINNextArabic-Medium.woff2
+          DINNextArabic-Bold.woff2
+     3. Restart `npm run dev`. The font is picked up automatically. */
+@font-face {
+  font-family: 'DIN Next Arabic';
+  src: url('/fonts/DINNextLTArabic-Regular-3.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'DIN Next Arabic';
+  src: url('/fonts/DINNextLTArabic-Regular-3.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'DIN Next Arabic';
+  src: url('/fonts/DINNextLTArabic-Regular-3.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'DIN Next Arabic';
+  src: url('/fonts/DINNextLTArabic-Bold-2.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-arabic: 'DIN Next Arabic', 'IBM Plex Sans Arabic', 'Tajawal', 'Cairo', system-ui, sans-serif;
+  --font-display: 'DIN Next Arabic', 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', serif;
+
+  /* Light theme tokens — referenced by component-level utilities. */
+  --color-bg: #FAFAFB;
+  --color-bg-elev: #FFFFFF;
+  --color-text: #0E0E10;
+  --color-text-muted: #5B5B63;
+  --color-border: #EFEFF1;
+  --color-brand: #F26B1F;
+}
+
+.dark {
+  --color-bg: #0E0E10;
+  --color-bg-elev: #1A1A1D;
+  --color-text: #FAFAFB;
+  --color-text-muted: #B9B9C0;
+  --color-border: #2C2C30;
+  --color-brand: #FF7E3A;
+}
+
+html, body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-arabic);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Improve Arabic readability */
+body {
+  line-height: 1.65;
+  letter-spacing: 0;
+}
+
+/* RTL scrollbar polish */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(91, 91, 99, 0.25);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(91, 91, 99, 0.4); }
+
+/* Focus rings — keyboard accessible, brand-coloured */
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Reusable utility classes */
+@layer components {
+  .glass {
+    @apply backdrop-blur-xl bg-white/70 dark:bg-ink-800/70 border border-white/30 dark:border-ink-700/40;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl
+           bg-brand-500 hover:bg-brand-600 text-white font-bold
+           transition-all duration-200 active:scale-[0.98]
+           shadow-brand-glow disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl
+           bg-ink-100 hover:bg-ink-200 dark:bg-ink-800 dark:hover:bg-ink-700
+           text-ink-800 dark:text-ink-100 font-medium
+           transition-all duration-200 active:scale-[0.98];
+  }
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl
+           border border-ink-200 dark:border-ink-700
+           hover:border-brand-500 hover:text-brand-600 dark:hover:text-brand-400
+           text-ink-700 dark:text-ink-200 font-medium
+           transition-all duration-200 active:scale-[0.98];
+  }
+  .input-field {
+    @apply w-full px-5 py-4 rounded-2xl text-lg
+           bg-white dark:bg-ink-800
+           border-2 border-ink-200 dark:border-ink-700
+           text-ink-900 dark:text-ink-50 placeholder-ink-400
+           focus:border-brand-500 focus:outline-none
+           transition-colors duration-200;
+  }
+  .label-tag {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold
+           bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300;
+  }
+  .card-surface {
+    @apply bg-white dark:bg-ink-800 rounded-3xl shadow-soft
+           border border-ink-100 dark:border-ink-700;
+  }
+}
+
+/* Loading shimmer */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(0,0,0,0.04) 0%,
+    rgba(0,0,0,0.10) 50%,
+    rgba(0,0,0,0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+.dark .shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.04) 0%,
+    rgba(255,255,255,0.10) 50%,
+    rgba(255,255,255,0.04) 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* Template preview must NOT be transformed by parent containers during export —
+   html-to-image relies on accurate getBoundingClientRect dimensions. */
+.template-canvas {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Auto-fit text helper class — handled in JS, but base styles here */
+.fit-text {
+  white-space: nowrap;
+  display: inline-block;
+  transform-origin: center;
+}
+
+/* Smooth page transitions */
+.page-enter {
+  animation: pageEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Darb logo — darken in light mode so it reads clearly on white backgrounds.
+   The GIF/PNG logo is optimised for dark backgrounds, so we apply a
+   brightness + contrast filter in light mode to give it enough contrast.
+   In dark mode we reset to avoid double-darkening. */
+.darb-logo-img {
+  filter: brightness(0.75) contrast(1.15);
+  transition: filter 0.2s ease;
+}
+.dark .darb-logo-img {
+  filter: none;
+}
