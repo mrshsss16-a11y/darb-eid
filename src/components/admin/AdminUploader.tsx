@@ -1,47 +1,54 @@
 'use client';
 
-import { useRef, useState, type DragEvent } from 'react';
+import { useRef, useState } from 'react';
 import { Upload, ImageIcon, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useTemplates, StorageQuotaError } from '@/templates/store';
-import type { StoredTemplate, OccasionKey } from '@/templates/types';
+import type { StoredTemplate, OccasionKey, CanvasFormat } from '@/templates/types';
 import { OCCASIONS } from '@/templates/types';
 import { compressImageFile, formatBytes, type CompressedImage } from '@/utils/imageProcessing';
+import { useTheme } from '@/components/ThemeProvider';
 
-/**
- * Lets the admin upload a background image and turn it into a new template.
- *
- * UX flow:
- *  1. Pick (or drag) a file → we resize/compress to JPEG (≤ ~1600px, q=0.86)
- *     so it fits comfortably in localStorage even after a few uploads.
- *  2. Show a preview + the original/compressed sizes so the admin sees what
- *     they're actually saving.
- *  3. Title auto-fills from the filename; admin can rename before saving.
- *  4. "حفظ القالب" persists it via the store. We surface specific errors
- *     (file too big, not an image, quota full) in Arabic.
- */
 export function AdminUploader() {
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const { theme } = useTheme();
+  
+  const squareInputRef = useRef<HTMLInputElement | null>(null);
+  const storyInputRef = useRef<HTMLInputElement | null>(null);
+  const postInputRef = useRef<HTMLInputElement | null>(null);
+  
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
-  const [preview, setPreview] = useState<CompressedImage | null>(null);
-  const [originalBytes, setOriginalBytes] = useState<number | null>(null);
-  const [dragging, setDragging] = useState(false);
   const [occasionKey, setOccasionKey] = useState<OccasionKey>('eid-adha');
+  const [draggingFormat, setDraggingFormat] = useState<CanvasFormat | null>(null);
+
+  const [previews, setPreviews] = useState<Record<CanvasFormat, CompressedImage | null>>({
+    square: null,
+    story: null,
+    post: null,
+  });
+
+  const [originalSizes, setOriginalSizes] = useState<Record<CanvasFormat, number | null>>({
+    square: null,
+    story: null,
+    post: null,
+  });
 
   const { addCustomTemplate } = useTemplates({ includeHidden: true });
 
   const reset = () => {
-    setPreview(null);
-    setOriginalBytes(null);
+    setPreviews({ square: null, story: null, post: null });
+    setOriginalSizes({ square: null, story: null, post: null });
     setError(null);
     setTitle('');
     setDone(null);
-    if (inputRef.current) inputRef.current.value = '';
+    setDraggingFormat(null);
+    if (squareInputRef.current) squareInputRef.current.value = '';
+    if (storyInputRef.current) storyInputRef.current.value = '';
+    if (postInputRef.current) postInputRef.current.value = '';
   };
 
-  const processFile = async (file: File) => {
+  const processFile = async (file: File, format: CanvasFormat) => {
     setError(null);
     setDone(null);
 
@@ -49,20 +56,19 @@ export function AdminUploader() {
       setError('الملف ليس صورة. اختر ملف بصيغة PNG أو JPG أو WebP.');
       return;
     }
-    // Reject only truly massive files (Canvas API can choke past ~20 MB);
-    // anything under that we'll compress.
     if (file.size > 20 * 1024 * 1024) {
       setError(`حجم الملف ${formatBytes(file.size)} كبير جداً. الحد الأقصى 20 ميجابايت.`);
       return;
     }
 
     setBusy(true);
-    setOriginalBytes(file.size);
+    setOriginalSizes((prev) => ({ ...prev, [format]: file.size }));
     try {
       const compressed = await compressImageFile(file);
-      setPreview(compressed);
-      // Auto-fill title from filename if empty.
-      if (!title.trim()) {
+      setPreviews((prev) => ({ ...prev, [format]: compressed }));
+      
+      // Auto-fill title from filename if empty and it's the square/base format
+      if (!title.trim() && format === 'square') {
         const base = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
         setTitle(base || 'قالب جديد');
       }
@@ -73,62 +79,58 @@ export function AdminUploader() {
     }
   };
 
-  const onPick = () => inputRef.current?.click();
+  const onPick = (format: CanvasFormat) => {
+    if (format === 'square') squareInputRef.current?.click();
+    else if (format === 'story') storyInputRef.current?.click();
+    else if (format === 'post') postInputRef.current?.click();
+  };
 
-  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>, format: CanvasFormat) => {
     const f = e.target.files?.[0];
-    if (f) processFile(f);
+    if (f) processFile(f, format);
   };
 
-  const onDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragging(false);
-    const f = e.dataTransfer.files?.[0];
-    if (f) processFile(f);
-  };
-
-  const onSave = () => {
-    if (!preview) {
-      setError('اختر صورة أولاً.');
+  const onSave = async () => {
+    if (!previews.square) {
+      setError('يجب اختيار الصورة الأساسية (المقاس المربع) أولاً.');
       return;
     }
     const cleanTitle = (title.trim() || 'قالب جديد').slice(0, 100);
-
     const occMeta = OCCASIONS.find((o) => o.key === occasionKey) ?? OCCASIONS[0];
+
     const payload: StoredTemplate = {
       id: `custom-${Date.now()}`,
       title: cleanTitle,
       occasion: occMeta.title,
       occasionKey: occasionKey,
-      // bg = neutral cream (NOT white) so the canvas edge is visible even
-      // before/while the image loads. accent stays brand orange.
       palette: { accent: '#F26B1F', bg: '#F5E6D3' },
       defaultNameStyle: {
         x: 50, y: 78, align: 'center',
         fontSizePct: 4.2,
-        // Brand orange — readable on most uploaded artwork AND on the
-        // neutral cream bg if the image hasn't loaded yet. Users can change
-        // it via the colour picker in the editor.
         color: '#A93F09',
         maxWidthPct: 75,
         preset: 'bottom', weight: 700, shadow: true,
       },
-      source: { kind: 'custom', imageDataUrl: preview.dataUrl },
+      source: {
+        kind: 'custom',
+        imageDataUrl: previews.square.dataUrl,
+        images: {
+          square: previews.square.dataUrl,
+          story: previews.story?.dataUrl || undefined,
+          post: previews.post?.dataUrl || undefined,
+        },
+      },
     };
 
     try {
-      addCustomTemplate(payload);
+      await addCustomTemplate(payload);
       setDone(`تمت إضافة "${cleanTitle}" بنجاح`);
-      setPreview(null);
-      setOriginalBytes(null);
-      setTitle('');
-      if (inputRef.current) inputRef.current.value = '';
+      reset();
       setTimeout(() => setDone(null), 4000);
     } catch (err) {
       if (err instanceof StorageQuotaError) {
         setError(
-          'الذاكرة المحلية ممتلئة. احذف قالب مرفوع قديم من القائمة بالأسفل ثم حاول مرة ثانية. ' +
-          '(ملاحظة: المتصفح يخزن القوالب محلياً بحد ~5 ميجابايت — للاستخدام الموسّع اربط المنصة بقاعدة بيانات حقيقية)',
+          'الذاكرة المحلية ممتلئة. احذف قالب مرفوع قديم من القائمة بالأسفل ثم حاول مرة ثانية.'
         );
       } else {
         setError('فشل حفظ القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
@@ -144,136 +146,177 @@ export function AdminUploader() {
         </span>
         <div className="flex-1 min-w-0">
           <h3 className="font-display text-lg font-extrabold text-ink-900 dark:text-ink-50">
-            رفع قالب جديد
+            رفع قالب جديد لكل المقاسات
           </h3>
           <p className="text-sm text-ink-500 dark:text-ink-400 mt-1">
-            ارفع صورة خلفية (PNG / JPG / WebP). سيتم تصغيرها وضغطها تلقائياً
-            بحيث تناسب التخزين المحلي. اسحب الملف هنا أو اضغط الزر.
+            قم بتعبئة بيانات القالب وارفع خلفية لكل مقاس من المقاسات الثلاثة لتحقيق دقة عرض مثالية.
           </p>
 
-          {/* Drop zone (always present when no preview) */}
-          {!preview && (
-            <div
-              onClick={onPick}
-              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={onDrop}
-              className={`mt-4 cursor-pointer rounded-2xl border-2 border-dashed transition-all p-8 text-center
-                ${dragging
-                  ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20 scale-[1.01]'
-                  : 'border-ink-200 dark:border-ink-700 hover:border-brand-400 hover:bg-ink-50 dark:hover:bg-ink-800/50'
-                }`}
-            >
-              {busy ? (
-                <div className="flex flex-col items-center gap-2 text-ink-500">
-                  <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
-                  <span className="text-sm font-medium">جارٍ معالجة الصورة…</span>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-2 text-ink-500 dark:text-ink-400">
-                  <Upload className="h-8 w-8 text-brand-500" />
-                  <span className="text-sm font-bold text-ink-700 dark:text-ink-200">
-                    اضغط للاختيار أو اسحب الصورة هنا
-                  </span>
-                  <span className="text-xs">
-                    PNG · JPG · WebP — حتى 20 ميجابايت (يتم الضغط تلقائياً)
-                  </span>
-                </div>
-              )}
+          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Title Input */}
+            <div>
+              <label className="block text-xs font-bold text-ink-500 dark:text-ink-400 mb-1.5">
+                عنوان القالب
+              </label>
               <input
-                ref={inputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={onFile}
-                className="hidden"
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value.slice(0, 100))}
+                placeholder="مثال: زخرفة كلاسيكية"
+                maxLength={100}
+                className="input-field !py-3"
               />
             </div>
-          )}
 
-          {/* Preview + final save */}
-          {preview && (
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-4 rounded-2xl border border-ink-200 dark:border-ink-700 p-4">
-              <div className="relative aspect-square rounded-xl overflow-hidden bg-ink-100 dark:bg-ink-900">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={preview.dataUrl} alt="معاينة" className="w-full h-full object-cover" />
-                <button
-                  onClick={reset}
-                  className="absolute top-2 left-2 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80"
-                  title="إلغاء"
-                  type="button"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-ink-500 dark:text-ink-400 mb-1.5">
-                    عنوان القالب
-                  </label>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value.slice(0, 100))}
-                    placeholder="مثال: زخرفة كلاسيكية"
-                    maxLength={100}
-                    className="input-field !py-3"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-ink-500 dark:text-ink-400 mb-1.5">
-                    المناسبة
-                  </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {OCCASIONS.map((o) => {
-                      const active = o.key === occasionKey;
-                      return (
-                        <button
-                          key={o.key}
-                          type="button"
-                          onClick={() => setOccasionKey(o.key)}
-                          className="text-xs font-bold rounded-lg px-2.5 py-1.5 transition-all border-2"
-                          style={{
-                            background: active ? o.color : o.bg,
-                            color: active ? '#FFFFFF' : '#1A1A1D',
-                            borderColor: active ? o.color : 'transparent',
-                          }}
-                        >
-                          {o.title}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="text-xs text-ink-500 dark:text-ink-400 grid grid-cols-2 gap-2">
-                  {originalBytes != null && (
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wider text-ink-400">الأصل</div>
-                      <div className="font-mono">{formatBytes(originalBytes)}</div>
-                    </div>
-                  )}
-                  <div>
-                    <div className="text-[10px] uppercase tracking-wider text-ink-400">بعد الضغط</div>
-                    <div className="font-mono text-green-600 dark:text-green-400">
-                      {formatBytes(preview.bytes)} · {preview.width}×{preview.height}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-2 mt-auto">
-                  <button onClick={onSave} className="btn-primary flex-1" disabled={busy}>
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>حفظ القالب</span>
-                  </button>
-                  <button onClick={reset} className="btn-ghost">
-                    إلغاء
-                  </button>
-                </div>
+            {/* Occasion Selection */}
+            <div>
+              <label className="block text-xs font-bold text-ink-500 dark:text-ink-400 mb-1.5">
+                المناسبة
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {OCCASIONS.map((o) => {
+                  const active = o.key === occasionKey;
+                  return (
+                    <button
+                      key={o.key}
+                      type="button"
+                      onClick={() => setOccasionKey(o.key)}
+                      className="text-xs font-bold rounded-lg px-2.5 py-1.5 transition-all border-2"
+                      style={{
+                        background: active ? o.color : (o.darkBg && theme === 'dark' ? o.darkBg : o.bg),
+                        color: active ? '#FFFFFF' : (theme === 'dark' ? '#E4E4E7' : '#1A1A1D'),
+                        borderColor: active ? o.color : 'transparent',
+                      }}
+                    >
+                      {o.title}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-          )}
+          </div>
+
+          {/* 3 Upload Areas Grid */}
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {(['square', 'story', 'post'] as CanvasFormat[]).map((fmt) => {
+              const preview = previews[fmt];
+              const origBytes = originalSizes[fmt];
+              const isDragging = draggingFormat === fmt;
+              
+              let label = 'مربع (1:1)';
+              let badge = 'أساسي';
+              let badgeStyle = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+              let aspectClass = 'aspect-square';
+              
+              if (fmt === 'story') {
+                label = 'ستوري (9:16)';
+                badge = 'اختياري';
+                badgeStyle = 'bg-ink-100 text-ink-600 dark:bg-ink-850 dark:text-ink-400';
+                aspectClass = 'aspect-[9/16]';
+              } else if (fmt === 'post') {
+                label = 'منشور (1.91:1)';
+                badge = 'اختياري';
+                badgeStyle = 'bg-ink-100 text-ink-600 dark:bg-ink-850 dark:text-ink-400';
+                aspectClass = 'aspect-[1.91/1]';
+              }
+
+              return (
+                <div key={fmt} className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-ink-700 dark:text-ink-300">{label}</span>
+                    <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md ${badgeStyle}`}>
+                      {badge}
+                    </span>
+                  </div>
+
+                  {/* Upload box */}
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setDraggingFormat(fmt); }}
+                    onDragLeave={() => setDraggingFormat(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDraggingFormat(null);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) processFile(f, fmt);
+                    }}
+                    onClick={() => {
+                      if (!preview) onPick(fmt);
+                    }}
+                    className={`relative cursor-pointer rounded-2xl border-2 border-dashed transition-all overflow-hidden flex flex-col items-center justify-center p-4 text-center ${aspectClass}
+                      ${preview 
+                        ? 'border-ink-200 dark:border-ink-700 hover:border-brand-400' 
+                        : isDragging
+                          ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20 scale-[1.01]'
+                          : 'border-ink-200 dark:border-ink-700 hover:border-brand-400 hover:bg-ink-50 dark:hover:bg-ink-800/50'
+                      }`}
+                  >
+                    {preview ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={preview.dataUrl} alt={label} className="absolute inset-0 w-full h-full object-cover z-0" />
+                        <div className="absolute inset-0 bg-black/40 z-10 opacity-0 hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 p-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviews((p) => ({ ...p, [fmt]: null }));
+                              setOriginalSizes((s) => ({ ...s, [fmt]: null }));
+                            }}
+                            className="p-1.5 rounded-full bg-red-600 text-white hover:bg-red-700 shadow-md transition-colors"
+                            title="إلغاء"
+                            type="button"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                          <span className="text-[10px] text-white font-mono bg-black/60 px-1.5 py-0.5 rounded">
+                            {preview.width}×{preview.height}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex flex-col items-center gap-1.5 text-ink-500 dark:text-ink-400 z-10 w-full h-full justify-center">
+                        <Upload className="h-6 w-6 text-brand-500" />
+                        <span className="text-[11px] font-bold text-ink-700 dark:text-ink-200">
+                          اضغط للرفع أو اسحب هنا
+                        </span>
+                        <span className="text-[9px] text-ink-400">
+                          PNG · JPG · WebP
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {preview && (
+                    <div className="text-[10px] font-mono text-ink-500 dark:text-ink-400 text-center">
+                      {origBytes != null ? formatBytes(origBytes) : ''} → <span className="text-green-600 dark:text-green-400">{formatBytes(preview.bytes)}</span>
+                    </div>
+                  )}
+
+                  <input
+                    ref={fmt === 'square' ? squareInputRef : fmt === 'story' ? storyInputRef : postInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(e) => onFileChange(e, fmt)}
+                    className="hidden"
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-2 mt-6 justify-end border-t border-ink-100 dark:border-ink-800 pt-4">
+            <button onClick={reset} className="btn-ghost">
+              إعادة تعيين
+            </button>
+            <button onClick={onSave} className="btn-primary" disabled={busy || !previews.square}>
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              <span>حفظ القالب</span>
+            </button>
+          </div>
 
           {/* Error */}
           {error && (

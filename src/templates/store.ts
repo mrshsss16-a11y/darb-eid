@@ -89,6 +89,7 @@ function resolveStored(s: StoredTemplate): Template {
     defaultNameStyle: s.defaultNameStyle,
     renderArtwork: () => null,
     customImage: s.source.imageDataUrl,
+    customImages: s.source.images,
   };
 }
 

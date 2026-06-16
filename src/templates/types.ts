@@ -279,6 +279,11 @@ export interface Template {
   /** Optional: a custom uploaded image (data URL) used in place of renderArtwork.
    *  Admin-uploaded templates will set this. */
   customImage?: string;
+  customImages?: {
+    square?: string;
+    story?: string;
+    post?: string;
+  };
 }
 
 /** Persisted (serialisable) shape — used when admin stores templates in storage. */
@@ -292,5 +297,13 @@ export interface StoredTemplate {
   /** Either a key referencing a built-in design (seed) or a data URL. */
   source:
     | { kind: 'seed'; key: string }
-    | { kind: 'custom'; imageDataUrl: string };
+    | {
+        kind: 'custom';
+        imageDataUrl: string;
+        images?: {
+          square?: string;
+          story?: string;
+          post?: string;
+        };
+      };
 }

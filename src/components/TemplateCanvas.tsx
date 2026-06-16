@@ -45,9 +45,10 @@ export const TemplateCanvas = forwardRef<HTMLDivElement, TemplateCanvasProps>(
     const cssW = pixelWidth ?? dims.w;
     const cssH = (cssW / dims.w) * dims.h;
 
+    const customImgSrc = template.customImages?.[format] || template.customImage;
     const fitRef = useRef<HTMLSpanElement | null>(null);
     const [imgError, setImgError] = useState(false);
-    useEffect(() => { setImgError(false); }, [template.customImage]);
+    useEffect(() => { setImgError(false); }, [customImgSrc]);
 
     // Auto-fit the name if it would overflow the chosen max width.
     useEffect(() => {
@@ -93,10 +94,10 @@ export const TemplateCanvas = forwardRef<HTMLDivElement, TemplateCanvasProps>(
         }}
       >
         {/* Artwork layer */}
-        {template.customImage && !imgError ? (
+        {customImgSrc && !imgError ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={template.customImage}
+            src={customImgSrc}
             alt={template.title}
             onError={() => setImgError(true)}
             style={{
@@ -109,7 +110,7 @@ export const TemplateCanvas = forwardRef<HTMLDivElement, TemplateCanvasProps>(
               zIndex: 1,
             }}
           />
-        ) : template.customImage && imgError ? (
+        ) : customImgSrc && imgError ? (
           <div
             style={{
               position: 'absolute',

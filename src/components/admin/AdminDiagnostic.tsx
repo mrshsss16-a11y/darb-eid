@@ -26,7 +26,15 @@ export function AdminDiagnostic() {
   const [open, setOpen] = useState(false);
 
   const customTemplates = templates.filter(t => !t.isSeed);
-  const totalSize = customTemplates.reduce((acc, t) => acc + (t.customImage?.length || 0), 0);
+  const totalSize = customTemplates.reduce((acc, t) => {
+    let size = t.customImage?.length || 0;
+    if (t.customImages) {
+      Object.values(t.customImages).forEach((img: any) => {
+        if (img) size += img.length;
+      });
+    }
+    return acc + size;
+  }, 0);
 
   const refresh = () => {
     try {
@@ -152,12 +160,20 @@ function DiagnosticRow({ row, customTemplates }: { row: Row; customTemplates: an
           </div>
           <div className="font-mono text-ink-500 truncate">{row.id}</div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-            <span className="text-ink-400">kind:</span>
+            <span className="text-ink-400">نوع القالب:</span>
             <span className="font-mono text-ink-700 dark:text-ink-200">{row.kind}</span>
-            <span className="text-ink-400">طول الـ URL:</span>
+            <span className="text-ink-400">المقاسات المتوفرة:</span>
+            <span className="font-mono text-ink-700 dark:text-ink-200">
+              {(() => {
+                const t = customTemplates.find((x) => x?.id === row.id);
+                if (t?.customImages) {
+                  return Object.keys(t.customImages).filter(k => t.customImages[k]).join(', ');
+                }
+                return 'square';
+              })()}
+            </span>
+            <span className="text-ink-400">طول الـ URL (الأساسي):</span>
             <span className="font-mono text-ink-700 dark:text-ink-200">{row.urlLength.toLocaleString()}</span>
-            <span className="text-ink-400">بداية الـ URL:</span>
-            <span className="font-mono text-ink-700 dark:text-ink-200 truncate">{row.urlPrefix || '<فارغ>'}</span>
             <span className="text-ink-400">رأس صحيح؟</span>
             <span className={row.validHeader ? 'text-green-600 font-bold' : 'text-red-600 font-bold'}>
               {row.validHeader ? 'نعم ✓' : 'لا ✗'}
