@@ -24,6 +24,7 @@ interface Override {
   defaultNameStyle?: NameStyle;
   /** True → seed template is hidden from the public gallery / editor list. */
   hidden?: boolean;
+  source?: StoredTemplate['source'];
 }
 type Overrides = Record<string, Override>;
 
@@ -275,6 +276,7 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
             ...next[i],
             title: patch.title ?? next[i].title,
             defaultNameStyle: patch.defaultNameStyle ?? next[i].defaultNameStyle,
+            source: patch.source ?? next[i].source,
           };
           saveStored(next);
           return next;
@@ -282,10 +284,14 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
 
         // Sync with Supabase templates table
         try {
-          await secureAdminWrite('templates', 'update', {
+          const updateData: any = {
             title: patch.title,
             default_name_style: patch.defaultNameStyle,
-          }, { key: 'id', val: id });
+          };
+          if (patch.source) {
+            updateData.source = patch.source;
+          }
+          await secureAdminWrite('templates', 'update', updateData, { key: 'id', val: id });
         } catch (err) {
           console.error('Failed to update custom template in Supabase:', err);
         }

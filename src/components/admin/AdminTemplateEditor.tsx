@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Save, Trash2, EyeOff, Eye, Loader2 } from 'lucide-react';
+import { Save, Trash2, EyeOff, Eye, Loader2, Upload, ImageIcon, AlertCircle } from 'lucide-react';
 import { TemplateCanvas } from '@/components/TemplateCanvas';
 import { PositionControls } from '@/components/editor/PositionControls';
 import { FormatSwitch } from '@/components/editor/FormatSwitch';
@@ -9,6 +9,7 @@ import { useTemplates } from '@/templates/store';
 import type { NameStyle, CanvasFormat } from '@/templates/types';
 import { FORMAT_DIMENSIONS, getFormatNameStyle, updateFormatNameStyle } from '@/templates/types';
 import { seedTemplates } from '@/templates/seed';
+import { compressImageFile } from '@/utils/imageProcessing';
 
 interface Props {
   templateId: string;
@@ -36,12 +37,60 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const [customImages, setCustomImages] = useState<{
+    square?: string;
+    story?: string;
+    post?: string;
+  }>({});
+  const [uploadingFormat, setUploadingFormat] = useState<CanvasFormat | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   useEffect(() => {
     if (template) {
       setTitle(template.title);
       setStyle({ ...template.defaultNameStyle });
+      setCustomImages({
+        square: template.customImages?.square || template.customImage || '',
+        story: template.customImages?.story || '',
+        post: template.customImages?.post || '',
+      });
     }
   }, [template]);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, fmt: CanvasFormat) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setUploadError('الملف ليس صورة.');
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadError('حجم الملف كبير جداً (الأقصى 20 ميجابايت).');
+      return;
+    }
+
+    setUploadingFormat(fmt);
+    setUploadError(null);
+    try {
+      const compressed = await compressImageFile(file);
+      setCustomImages((prev) => ({
+        ...prev,
+        [fmt]: compressed.dataUrl,
+      }));
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'فشل تحميل الصورة.');
+    } finally {
+      setUploadingFormat(null);
+    }
+  };
+
+  const handleImageClear = (fmt: CanvasFormat) => {
+    setCustomImages((prev) => ({
+      ...prev,
+      [fmt]: '',
+    }));
+  };
 
   const previewRef = useRef<HTMLDivElement | null>(null);
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
@@ -113,9 +162,46 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
 
   const isSeed = seedTemplates.some((t) => t.id === template.id);
 
+  const localTemplate = useMemo(() => {
+    if (!template) return null;
+    if (isSeed) return template;
+    return {
+      ...template,
+      customImage: customImages.square,
+      customImages: {
+        square: customImages.square,
+        story: customImages.story,
+        post: customImages.post,
+      },
+    };
+  }, [template, customImages, isSeed]);
+
   const onSave = async () => {
+    if (!isSeed && !customImages.square) {
+      alert('يجب تحديد صورة للمقاس المربع كحد أدنى.');
+      return;
+    }
+
     setSaving(true);
-    await upsertOverride(template.id, { title, defaultNameStyle: style });
+    
+    const patchData: any = {
+      title,
+      defaultNameStyle: style,
+    };
+
+    if (!isSeed) {
+      patchData.source = {
+        kind: 'custom',
+        imageDataUrl: customImages.square || '',
+        images: {
+          square: customImages.square || undefined,
+          story: customImages.story || undefined,
+          post: customImages.post || undefined,
+        },
+      };
+    }
+
+    await upsertOverride(template.id, patchData);
     setSaving(false);
     setSavedAt(Date.now());
     setTimeout(() => setSavedAt(null), 2500);
@@ -203,7 +289,7 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
             style={{ width: previewWidth, height: previewHeight }}
           >
             <TemplateCanvas
-              template={template}
+              template={localTemplate || template}
               employeeName="اسم الموظف · Employee Name"
               format={format}
               nameStyle={activeStyle}
@@ -236,6 +322,95 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
             className="input-field"
           />
         </div>
+
+        {!isSeed && (
+          <div className="card-surface p-5 space-y-4">
+            <h3 className="font-display font-extrabold text-ink-900 dark:text-ink-50 flex items-center gap-2">
+              <ImageIcon className="h-5 w-5 text-brand-500" />
+              <span>خلفيات القالب للمقاسات</span>
+            </h3>
+            <p className="text-xs text-ink-400">
+              يمكنك رفع خلفية مخصصة لكل مقاس أو الاكتفاء بالخلفية المربعة كخيار أساسي.
+            </p>
+
+            <div className="space-y-3">
+              {(['square', 'story', 'post'] as CanvasFormat[]).map((fmt) => {
+                const img = customImages[fmt];
+                const isUploading = uploadingFormat === fmt;
+                const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+                let label = 'مربع (1:1) - أساسي';
+                if (fmt === 'story') label = 'ستوري (9:16) - اختياري';
+                else if (fmt === 'post') label = 'منشور (1.91:1) - اختياري';
+
+                return (
+                  <div key={fmt} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-ink-700 dark:text-ink-300">
+                      <span>{label}</span>
+                      {img && fmt !== 'square' && (
+                        <button
+                          onClick={() => handleImageClear(fmt)}
+                          className="text-red-500 hover:text-red-600 font-semibold"
+                          type="button"
+                        >
+                          إزالة
+                        </button>
+                      )}
+                    </div>
+
+                    <div
+                      onClick={() => {
+                        if (!isUploading) fileInputRef.current?.click();
+                      }}
+                      className={`relative cursor-pointer rounded-xl border border-dashed transition-all p-3 flex items-center gap-3 overflow-hidden
+                        ${img 
+                          ? 'border-ink-200 bg-ink-50/55 dark:bg-ink-900/10' 
+                          : 'border-ink-300 hover:border-brand-500 bg-ink-50/20 hover:bg-ink-50/55 dark:hover:bg-ink-800/20'
+                        }`}
+                    >
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        onChange={(e) => handleImageUpload(e, fmt)}
+                        className="hidden"
+                      />
+
+                      {img ? (
+                        <>
+                          <div className="w-10 h-10 rounded overflow-hidden bg-ink-200 dark:bg-ink-950 shrink-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={img} alt="" className="w-full h-full object-cover" />
+                          </div>
+                          <span className="text-xs text-green-600 dark:text-green-400 font-bold truncate">
+                            جاهزة ✓ (انقر للتغيير)
+                          </span>
+                        </>
+                      ) : isUploading ? (
+                        <>
+                          <Loader2 className="h-5 w-5 animate-spin text-brand-500 shrink-0" />
+                          <span className="text-xs text-ink-400">جارٍ المعالجة…</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="h-4 w-4 text-brand-500 shrink-0" />
+                          <span className="text-xs text-ink-500 dark:text-ink-400">انقر للرفع</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {uploadError && (
+              <div className="flex items-start gap-1.5 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 p-2 text-xs border border-red-200 dark:border-red-900/40">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{uploadError}</span>
+              </div>
+            )}
+          </div>
+        )}
         <div className="card-surface p-5">
           <h3 className="font-display font-extrabold text-ink-900 dark:text-ink-50 mb-4 flex items-center gap-2">
             <span>إعدادات الاسم للمقاس:</span>
