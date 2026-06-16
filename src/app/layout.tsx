@@ -30,6 +30,20 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                const stored = localStorage.getItem('darb-theme');
+                const system = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                const theme = stored || system;
+                document.documentElement.classList.toggle('dark', theme === 'dark');
+              } catch (e) {}
+            `,
+          }}
+        />
+      </head>
       <body className="min-h-screen flex flex-col antialiased">
         <ThemeProvider>
           <Header />

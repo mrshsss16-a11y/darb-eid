@@ -2,6 +2,7 @@
 
 import { OCCASIONS, type OccasionKey } from '@/templates/types';
 import { cn } from '@/utils/cn';
+import { useTheme } from './ThemeProvider';
 
 interface Props {
   /** Selected occasion key, or null for "all". */
@@ -16,6 +17,8 @@ interface Props {
  * "الكل" chip selects null (show everything).
  */
 export function OccasionFilter({ value, onChange, counts }: Props) {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const allCount = counts?.all;
   return (
     <div className="flex gap-2 overflow-x-auto pb-2 -mx-2 px-2 snap-x no-scrollbar">
@@ -26,6 +29,7 @@ export function OccasionFilter({ value, onChange, counts }: Props) {
         count={allCount}
         accent="#5B5B63"
         bg="#F0F0F2"
+        isDark={isDark}
       />
       {OCCASIONS.filter((o) => o.key !== 'general').map((o) => (
         <Chip
@@ -37,6 +41,7 @@ export function OccasionFilter({ value, onChange, counts }: Props) {
           count={counts?.[o.key]}
           accent={o.color}
           bg={o.bg}
+          isDark={isDark}
         />
       ))}
     </div>
@@ -44,7 +49,7 @@ export function OccasionFilter({ value, onChange, counts }: Props) {
 }
 
 function Chip({
-  active, onClick, label, tagline, count, accent, bg,
+  active, onClick, label, tagline, count, accent, bg, isDark,
 }: {
   active: boolean;
   onClick: () => void;
@@ -53,6 +58,7 @@ function Chip({
   count?: number;
   accent: string;
   bg: string;
+  isDark: boolean;
 }) {
   return (
     <button
@@ -65,9 +71,9 @@ function Chip({
           : 'border-transparent hover:scale-[1.01]',
       )}
       style={{
-        background: active ? accent : bg,
-        borderColor: active ? accent : 'transparent',
-        color: active ? '#FFFFFF' : '#1A1A1D',
+        background: active ? accent : (isDark ? '#1A1A1D' : bg),
+        borderColor: active ? accent : (isDark ? '#2C2C30' : 'transparent'),
+        color: active ? '#FFFFFF' : (isDark ? '#FAFAFB' : '#1A1A1D'),
       }}
     >
       <div className="flex items-center gap-2">
@@ -76,7 +82,8 @@ function Chip({
           <span
             className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
             style={{
-              background: active ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.08)',
+              background: active ? 'rgba(255,255,255,0.25)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
+              color: active ? '#FFFFFF' : (isDark ? '#B9B9C0' : '#5B5B63'),
             }}
           >
             {count}
@@ -86,7 +93,7 @@ function Chip({
       {tagline && (
         <span
           className="text-[10px] mt-0.5"
-          style={{ color: active ? 'rgba(255,255,255,0.85)' : '#5B5B63' }}
+          style={{ color: active ? 'rgba(255,255,255,0.85)' : (isDark ? '#B9B9C0' : '#5B5B63') }}
         >
           {tagline}
         </span>

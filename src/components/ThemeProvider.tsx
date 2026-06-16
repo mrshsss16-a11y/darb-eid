@@ -45,7 +45,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // prevent the wrong-theme FOUC.
   return (
     <ThemeContext.Provider value={{ theme, toggle, setTheme }}>
-      <div style={{ visibility: mounted ? 'visible' : 'hidden' }}>{children}</div>
+      {children}
     </ThemeContext.Provider>
   );
 }
