@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { OCCASIONS, getOccasion, type OccasionKey, type OccasionMeta } from './types';
 import { supabase } from '@/utils/supabaseClient';
+import { useTheme } from '@/components/ThemeProvider';
 
 /**
  * Per-occasion hero customisation.
@@ -54,9 +55,26 @@ export interface ResolvedHero {
   bgOverlayOpacity: number;
 }
 
-export function resolveHero(key: OccasionKey, override: HeroOverride | undefined): ResolvedHero {
+export function resolveHero(
+  key: OccasionKey,
+  override: HeroOverride | undefined,
+  isDark?: boolean
+): ResolvedHero {
   const o = getOccasion(key);
   const h = o.hero;
+
+  const overrideColor = override?.color;
+  const isDefaultColor = !overrideColor || overrideColor === o.color;
+  const defaultColor = isDefaultColor
+    ? (isDark && o.darkColor ? o.darkColor : o.color)
+    : overrideColor!;
+
+  const overrideBg = override?.bg;
+  const isDefaultBg = !overrideBg || overrideBg === o.bg;
+  const defaultBg = isDefaultBg
+    ? (isDark && o.darkBg ? o.darkBg : o.bg)
+    : overrideBg!;
+
   return {
     occasion: o,
     eyebrow: override?.eyebrow ?? h.eyebrow,
@@ -64,12 +82,12 @@ export function resolveHero(key: OccasionKey, override: HeroOverride | undefined
     titleAccent: override?.titleAccent ?? h.titleAccent,
     subtitle: override?.subtitle ?? h.subtitle,
     cta: override?.cta ?? h.cta,
-    color: override?.color ?? o.color,
+    color: defaultColor,
     orbA: override?.orbA ?? o.orbColors[0],
     orbB: override?.orbB ?? o.orbColors[1],
-    bg: override?.bg ?? o.bg,
+    bg: defaultBg,
     bgImage: override?.bgImage,
-    bgOverlayColor: override?.bgOverlayColor ?? '#FFFFFF',
+    bgOverlayColor: override?.bgOverlayColor ?? (isDark ? '#0E0E10' : '#FFFFFF'),
     bgOverlayOpacity: override?.bgOverlayOpacity ?? 0.7,
   };
 }
@@ -93,6 +111,8 @@ function saveLocalHeroOverrides(o: Overrides) {
 }
 
 export function useHeroOverrides() {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const [overrides, setOverrides] = useState<Overrides>({});
   const [hydrated, setHydrated] = useState(false);
 
@@ -293,8 +313,8 @@ export function useHeroOverrides() {
 
   /** Read the resolved hero for a single occasion (preset + override merged). */
   const getResolved = useCallback(
-    (key: OccasionKey): ResolvedHero => resolveHero(key, overrides[key]),
-    [overrides],
+    (key: OccasionKey): ResolvedHero => resolveHero(key, overrides[key], isDark),
+    [overrides, isDark],
   );
 
   return {

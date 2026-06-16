@@ -10,6 +10,16 @@ interface HeroProps {
   selectedOccasionKey?: OccasionKey;
 }
 
+function getContrastText(hexColor: string): string {
+  if (!hexColor || !hexColor.startsWith('#')) return '#FFFFFF';
+  const hex = hexColor.substring(1);
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 180 ? '#0E0E10' : '#FFFFFF';
+}
+
 export function Hero({ selectedOccasionKey }: HeroProps) {
   const { occasionKey: activeKey } = useActiveOccasion();
   const { getResolved } = useHeroOverrides();
@@ -76,9 +86,10 @@ export function Hero({ selectedOccasionKey }: HeroProps) {
           <div className="mt-8 flex items-center gap-3">
             <a
               href="#gallery"
-              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl text-white font-bold transition-all duration-200 active:scale-[0.98]"
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all duration-200 active:scale-[0.98]"
               style={{
                 background: h.color,
+                color: getContrastText(h.color),
                 boxShadow: `0 20px 60px -20px ${h.color}88`,
               }}
             >

@@ -6,12 +6,15 @@ import { useActiveOccasion } from '@/templates/activeOccasion';
 import { useHeroOverrides, type HeroOverride } from '@/templates/heroCustomization';
 import { OCCASIONS, type OccasionKey } from '@/templates/types';
 import { compressImageFile, formatBytes } from '@/utils/imageProcessing';
+import { useTheme } from '@/components/ThemeProvider';
 
 /**
  * Full hero editor — admin tweaks copy + colours per occasion with a live
  * preview. The hero on `/` updates in real time as values change.
  */
 export function AdminHeroEditor() {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const { occasionKey: activeKey, setActive } = useActiveOccasion();
   const { setOverride, getResolved, hydrated } = useHeroOverrides();
 
@@ -186,9 +189,9 @@ export function AdminHeroEditor() {
                 onClick={() => setEditingKey(o.key)}
                 className="text-xs font-bold rounded-lg px-2.5 py-1.5 border-2 transition-all"
                 style={{
-                  background: active ? o.color : o.bg,
-                  color: active ? '#FFFFFF' : '#1A1A1D',
-                  borderColor: active ? o.color : 'transparent',
+                  background: active ? o.color : (isDark ? '#1A1A1D' : o.bg),
+                  color: active ? '#FFFFFF' : (isDark ? '#FAFAFB' : '#1A1A1D'),
+                  borderColor: active ? o.color : (isDark ? '#2C2C30' : 'transparent'),
                 }}
               >
                 {o.title}

@@ -42,6 +42,10 @@ export interface OccasionMeta {
   color: string;
   /** Background colour for the inactive chip state. */
   bg: string;
+  /** Dark mode accent colour for high contrast. */
+  darkColor?: string;
+  /** Dark mode chip background colour. */
+  darkBg?: string;
   /** Hero-mode strings — used when this occasion is set as the active site mode. */
   hero: {
     eyebrow: string;     // small badge above title
@@ -58,6 +62,7 @@ export const OCCASIONS: OccasionMeta[] = [
   {
     key: 'eid-adha', title: 'عيد الأضحى', tagline: 'تقبّل الله',
     color: '#F26B1F', bg: '#FFF4EC',
+    darkColor: '#FF7E3A', darkBg: 'rgba(255,126,58,0.12)',
     orbColors: ['#FFA068', '#F26B1F'],
     hero: {
       eyebrow: 'عيد الأضحى المبارك',
@@ -70,6 +75,7 @@ export const OCCASIONS: OccasionMeta[] = [
   {
     key: 'eid-fitr', title: 'عيد الفطر', tagline: 'كل عام وأنتم بخير',
     color: '#FF9B5E', bg: '#FFE3D0',
+    darkColor: '#FFAB7C', darkBg: 'rgba(255,171,124,0.12)',
     orbColors: ['#FFE3D0', '#FF9B5E'],
     hero: {
       eyebrow: 'عيد الفطر السعيد',
@@ -82,6 +88,7 @@ export const OCCASIONS: OccasionMeta[] = [
   {
     key: 'ramadan', title: 'رمضان المبارك', tagline: 'شهر الخير',
     color: '#5B3FA3', bg: '#F5E6D3',
+    darkColor: '#A78BFA', darkBg: 'rgba(167,139,250,0.12)',
     orbColors: ['#7E63C8', '#3D2978'],
     hero: {
       eyebrow: 'رمضان المبارك',
@@ -94,6 +101,7 @@ export const OCCASIONS: OccasionMeta[] = [
   {
     key: 'hajj', title: 'الحج', tagline: 'حجٌ مبرور',
     color: '#0E6D52', bg: '#E3F2EB',
+    darkColor: '#34D399', darkBg: 'rgba(52,211,153,0.12)',
     orbColors: ['#37A07B', '#0E6D52'],
     hero: {
       eyebrow: 'موسم الحج',
@@ -106,6 +114,7 @@ export const OCCASIONS: OccasionMeta[] = [
   {
     key: 'hijri-new-year', title: 'السنة الهجرية', tagline: 'عام هجري جديد',
     color: '#1B4E8A', bg: '#E5EEF8',
+    darkColor: '#60A5FA', darkBg: 'rgba(96,165,250,0.12)',
     orbColors: ['#3A78C2', '#102E55'],
     hero: {
       eyebrow: 'السنة الهجرية الجديدة',
@@ -118,6 +127,7 @@ export const OCCASIONS: OccasionMeta[] = [
   {
     key: 'national-day', title: 'اليوم الوطني', tagline: 'اليوم الوطني السعودي',
     color: '#005430', bg: '#E2F2EA',
+    darkColor: '#34D399', darkBg: 'rgba(52,211,153,0.12)',
     orbColors: ['#0A8F50', '#003520'],
     hero: {
       eyebrow: 'اليوم الوطني السعودي',
@@ -130,6 +140,7 @@ export const OCCASIONS: OccasionMeta[] = [
   {
     key: 'general', title: 'عام', tagline: 'لكل المناسبات',
     color: '#F26B1F', bg: '#F0F0F2',
+    darkColor: '#FF7E3A', darkBg: '#1A1A1D',
     orbColors: ['#FFA068', '#F26B1F'],
     hero: {
       eyebrow: 'منصة درب الداخلية',
