@@ -10,6 +10,7 @@ import { FORMAT_DIMENSIONS, getFormatNameStyle } from '@/templates/types';
 import { TemplateCanvas } from '@/components/TemplateCanvas';
 import { FormatSwitch } from '@/components/editor/FormatSwitch';
 import { exportNodeAsImage, whatsappShareUrl, type ExportFormat } from '@/utils/exportImage';
+import { cn } from '@/utils/cn';
 
 interface Props {
   templateId: string;
@@ -42,6 +43,21 @@ export function EditorClient({ templateId }: Props) {
   const [qrDataUrl, setQrDataUrl] = useState<string | undefined>();
   const [busy, setBusy] = useState<null | ExportFormat>(null);
   const [shareMsg, setShareMsg] = useState<string | null>(null);
+  const [userColor, setUserColor] = useState<string | null>(null);
+
+  // Reset custom color if template changes
+  useEffect(() => {
+    setUserColor(null);
+  }, [templateId]);
+
+  const resolvedNameStyle = useMemo(() => {
+    if (!template) return null;
+    const base = getFormatNameStyle(template.defaultNameStyle, format);
+    if (userColor) {
+      return { ...base, color: userColor };
+    }
+    return base;
+  }, [template, format, userColor]);
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
@@ -211,7 +227,7 @@ export function EditorClient({ templateId }: Props) {
                 template={template}
                 employeeName={name}
                 format={format}
-                nameStyle={getFormatNameStyle(template.defaultNameStyle, format)}
+                nameStyle={resolvedNameStyle || getFormatNameStyle(template.defaultNameStyle, format)}
                 qrDataUrl={qrDataUrl}
                 pixelWidth={previewWidth}
               />
@@ -235,7 +251,7 @@ export function EditorClient({ templateId }: Props) {
                 template={template}
                 employeeName={name}
                 format={format}
-                nameStyle={getFormatNameStyle(template.defaultNameStyle, format)}
+                nameStyle={resolvedNameStyle || getFormatNameStyle(template.defaultNameStyle, format)}
                 qrDataUrl={qrDataUrl}
                 // No pixelWidth → renders at native dims (1080×1080 etc.)
               />
@@ -324,7 +340,65 @@ export function EditorClient({ templateId }: Props) {
             )}
           </div>
 
+          {/* Font Color Selection */}
+          <div className="card-surface p-5 sm:p-6">
+            <label className="block text-sm font-bold text-ink-700 dark:text-ink-200 mb-3">
+              لون خط الاسم
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Reset to template default button */}
+              <button
+                type="button"
+                onClick={() => setUserColor(null)}
+                className={cn(
+                  'px-3 py-1.5 rounded-xl text-xs font-bold transition-all border',
+                  userColor === null
+                    ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-400 font-extrabold'
+                    : 'border-ink-200 dark:border-ink-700 text-ink-600 dark:text-ink-300 hover:bg-ink-50 dark:hover:bg-ink-800'
+                )}
+              >
+                افتراضي
+              </button>
 
+              <div className="flex items-center gap-1.5">
+                {[
+                  { value: '#FFFFFF', label: 'أبيض' },
+                  { value: '#0E0E10', label: 'أسود' },
+                  { value: '#D4AF37', label: 'ذهبي' },
+                  { value: '#F26B1F', label: 'برتقالي' },
+                ].map((c) => {
+                  const active = userColor === c.value;
+                  return (
+                    <button
+                      key={c.value}
+                      type="button"
+                      onClick={() => setUserColor(c.value)}
+                      className={cn(
+                        'w-7 h-7 rounded-full border transition-all relative',
+                        active
+                          ? 'border-brand-500 scale-110 ring-2 ring-brand-500/20'
+                          : 'border-ink-200 dark:border-ink-700 hover:scale-105'
+                      )}
+                      style={{ backgroundColor: c.value }}
+                      title={c.label}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Custom color picker */}
+              <div className="flex items-center gap-1.5 border-r border-ink-200 dark:border-ink-700 pr-3 mr-1">
+                <input
+                  type="color"
+                  value={userColor || (template ? getFormatNameStyle(template.defaultNameStyle, format).color : '#FFFFFF')}
+                  onChange={(e) => setUserColor(e.target.value)}
+                  className="w-7 h-7 rounded-lg cursor-pointer border border-ink-200 dark:border-ink-700 bg-transparent"
+                  title="لون مخصص"
+                />
+                <span className="text-xs text-ink-400">مخصص</span>
+              </div>
+            </div>
+          </div>
 
           {/* QR toggle */}
           <div className="card-surface p-5 sm:p-6">
