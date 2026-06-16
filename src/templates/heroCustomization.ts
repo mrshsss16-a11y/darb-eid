@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { OCCASIONS, getOccasion, type OccasionKey, type OccasionMeta } from './types';
 import { supabase } from '@/utils/supabaseClient';
 import { useTheme } from '@/components/ThemeProvider';
+import { secureAdminWrite } from '@/utils/adminDbClient';
 
 /**
  * Per-occasion hero customisation.
@@ -148,7 +149,7 @@ export function useHeroOverrides() {
               bg_overlay_color: o.bgOverlayColor ?? null,
               bg_overlay_opacity: o.bgOverlayOpacity ?? null,
             }));
-            await supabase.from('hero_overrides').insert(toInsert);
+            await secureAdminWrite('hero_overrides', 'insert', toInsert);
           }
 
           const parsed: Overrides = {};
@@ -228,36 +229,23 @@ export function useHeroOverrides() {
       // Sync with Supabase
       try {
         if (isDeleted) {
-          const { error } = await supabase
-            .from('hero_overrides')
-            .delete()
-            .eq('occasion_key', key);
-          if (error) {
-            console.error('Supabase delete hero override error:', error);
-            return { ok: false, error: error.message };
-          }
+          await secureAdminWrite('hero_overrides', 'delete', undefined, { key: 'occasion_key', val: key });
         } else {
-          const { error } = await supabase
-            .from('hero_overrides')
-            .upsert({
-              occasion_key: key,
-              eyebrow: patch.eyebrow === undefined ? null : patch.eyebrow,
-              title: patch.title === undefined ? null : patch.title,
-              title_accent: patch.titleAccent === undefined ? null : patch.titleAccent,
-              subtitle: patch.subtitle === undefined ? null : patch.subtitle,
-              cta: patch.cta === undefined ? null : patch.cta,
-              color: patch.color === undefined ? null : patch.color,
-              orb_a: patch.orbA === undefined ? null : patch.orbA,
-              orb_b: patch.orbB === undefined ? null : patch.orbB,
-              bg: patch.bg === undefined ? null : patch.bg,
-              bg_image: patch.bgImage === undefined ? null : patch.bgImage,
-              bg_overlay_color: patch.bgOverlayColor === undefined ? null : patch.bgOverlayColor,
-              bg_overlay_opacity: patch.bgOverlayOpacity === undefined ? null : patch.bgOverlayOpacity,
-            });
-          if (error) {
-            console.error('Supabase upsert hero override error:', error);
-            return { ok: false, error: error.message };
-          }
+          await secureAdminWrite('hero_overrides', 'upsert', {
+            occasion_key: key,
+            eyebrow: patch.eyebrow === undefined ? null : patch.eyebrow,
+            title: patch.title === undefined ? null : patch.title,
+            title_accent: patch.titleAccent === undefined ? null : patch.titleAccent,
+            subtitle: patch.subtitle === undefined ? null : patch.subtitle,
+            cta: patch.cta === undefined ? null : patch.cta,
+            color: patch.color === undefined ? null : patch.color,
+            orb_a: patch.orbA === undefined ? null : patch.orbA,
+            orb_b: patch.orbB === undefined ? null : patch.orbB,
+            bg: patch.bg === undefined ? null : patch.bg,
+            bg_image: patch.bgImage === undefined ? null : patch.bgImage,
+            bg_overlay_color: patch.bgOverlayColor === undefined ? null : patch.bgOverlayColor,
+            bg_overlay_opacity: patch.bgOverlayOpacity === undefined ? null : patch.bgOverlayOpacity,
+          });
         }
         console.log('[heroCustomization] Supabase upsert SUCCESS for', key);
         return { ok: true };
@@ -280,14 +268,7 @@ export function useHeroOverrides() {
 
     // Sync with Supabase
     try {
-      const { error } = await supabase
-        .from('hero_overrides')
-        .delete()
-        .eq('occasion_key', key);
-      if (error) {
-        console.error('Supabase delete hero override error:', error);
-        return { ok: false, error: error.message };
-      }
+      await secureAdminWrite('hero_overrides', 'delete', undefined, { key: 'occasion_key', val: key });
       return { ok: true };
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -302,10 +283,7 @@ export function useHeroOverrides() {
 
     // Sync with Supabase
     try {
-      await supabase
-        .from('hero_overrides')
-        .delete()
-        .neq('occasion_key', '');
+      await secureAdminWrite('hero_overrides', 'delete', undefined, { key: 'occasion_key', val: '', operator: 'neq' });
     } catch (err) {
       console.error('Failed to clear hero overrides in Supabase:', err);
     }

@@ -62,10 +62,13 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
     sessionStorage.removeItem(STORAGE_KEY);
     setAuthed(false);
     setPassword('');
+    try {
+      await fetch('/api/admin-logout', { method: 'POST' });
+    } catch {}
   };
 
   if (!authed) {

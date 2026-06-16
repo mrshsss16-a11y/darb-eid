@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import type { Template, StoredTemplate, NameStyle } from './types';
 import { seedTemplates, BUILTIN_DESIGNS } from './seed';
 import { supabase } from '@/utils/supabaseClient';
+import { secureAdminWrite } from '@/utils/adminDbClient';
 
 /**
  * Template store.
@@ -127,7 +128,7 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
               default_name_style: item.defaultNameStyle,
               source: item.source,
             }));
-            await supabase.from('templates').insert(toInsert);
+            await secureAdminWrite('templates', 'insert', toInsert);
             parsedStored = localStored;
           } else {
             parsedStored = tData.map((row) => ({
@@ -157,7 +158,7 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
               default_name_style: o.defaultNameStyle || null,
               hidden: o.hidden || false,
             }));
-            await supabase.from('overrides').insert(toInsert);
+            await secureAdminWrite('overrides', 'insert', toInsert);
             setOverrides(localOverrides);
           } else {
             const parsedOverrides: Overrides = {};
@@ -254,14 +255,12 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
 
         // Sync with Supabase overrides table
         try {
-          await supabase
-            .from('overrides')
-            .upsert({
-              id,
-              title: nextOverride.title ?? null,
-              default_name_style: nextOverride.defaultNameStyle ?? null,
-              hidden: nextOverride.hidden ?? false,
-            });
+          await secureAdminWrite('overrides', 'upsert', {
+            id,
+            title: nextOverride.title ?? null,
+            default_name_style: nextOverride.defaultNameStyle ?? null,
+            hidden: nextOverride.hidden ?? false,
+          });
         } catch (err) {
           console.error('Failed to save override to Supabase:', err);
         }
@@ -282,13 +281,10 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
 
         // Sync with Supabase templates table
         try {
-          await supabase
-            .from('templates')
-            .update({
-              title: patch.title,
-              default_name_style: patch.defaultNameStyle,
-            })
-            .eq('id', id);
+          await secureAdminWrite('templates', 'update', {
+            title: patch.title,
+            default_name_style: patch.defaultNameStyle,
+          }, { key: 'id', val: id });
         } catch (err) {
           console.error('Failed to update custom template in Supabase:', err);
         }
@@ -304,17 +300,15 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
 
     // Sync with Supabase
     try {
-      await supabase
-        .from('templates')
-        .insert({
-          id: item.id,
-          title: item.title,
-          occasion: item.occasion,
-          occasion_key: item.occasionKey || null,
-          palette: item.palette,
-          default_name_style: item.defaultNameStyle,
-          source: item.source,
-        });
+      await secureAdminWrite('templates', 'insert', {
+        id: item.id,
+        title: item.title,
+        occasion: item.occasion,
+        occasion_key: item.occasionKey || null,
+        palette: item.palette,
+        default_name_style: item.defaultNameStyle,
+        source: item.source,
+      });
     } catch (err) {
       console.error('Failed to add custom template to Supabase:', err);
     }
@@ -333,14 +327,12 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
 
       // Sync with Supabase
       try {
-        await supabase
-          .from('overrides')
-          .upsert({
-            id,
-            title: currentOverride.title ?? null,
-            default_name_style: currentOverride.defaultNameStyle ?? null,
-            hidden: true,
-          });
+        await secureAdminWrite('overrides', 'upsert', {
+          id,
+          title: currentOverride.title ?? null,
+          default_name_style: currentOverride.defaultNameStyle ?? null,
+          hidden: true,
+        });
       } catch (err) {
         console.error('Failed to sync hidden override to Supabase:', err);
       }
@@ -353,10 +345,7 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
 
       // Sync with Supabase
       try {
-        await supabase
-          .from('templates')
-          .delete()
-          .eq('id', id);
+        await secureAdminWrite('templates', 'delete', undefined, { key: 'id', val: id });
       } catch (err) {
         console.error('Failed to delete custom template from Supabase:', err);
       }
@@ -374,14 +363,12 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
 
     // Sync with Supabase
     try {
-      await supabase
-        .from('overrides')
-        .upsert({
-          id,
-          title: currentOverride.title ?? null,
-          default_name_style: currentOverride.defaultNameStyle ?? null,
-          hidden: false,
-        });
+      await secureAdminWrite('overrides', 'upsert', {
+        id,
+        title: currentOverride.title ?? null,
+        default_name_style: currentOverride.defaultNameStyle ?? null,
+        hidden: false,
+      });
     } catch (err) {
       console.error('Failed to restore override to Supabase:', err);
     }
@@ -395,8 +382,8 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
 
     // Sync with Supabase
     try {
-      await supabase.from('templates').delete().neq('id', '');
-      await supabase.from('overrides').delete().neq('id', '');
+      await secureAdminWrite('templates', 'delete', undefined, { key: 'id', val: '', operator: 'neq' });
+      await secureAdminWrite('overrides', 'delete', undefined, { key: 'id', val: '', operator: 'neq' });
     } catch (err) {
       console.error('Failed to reset data in Supabase:', err);
     }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 
 /**
  * POST /api/admin-auth
@@ -103,6 +104,15 @@ export async function POST(req: NextRequest) {
 
     // Success — clear rate limit for this IP.
     clearAttempts(ip);
+
+    cookies().set('admin_token', expected, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 60 * 60 * 24 * 7, // 1 week
+      path: '/',
+    });
+
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json(

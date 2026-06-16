@@ -5,14 +5,11 @@
 -- https://supabase.com/dashboard/project/ryfbpiyqwocuendcdpwy/sql/new
 --
 -- SECURITY MODEL:
---   - anon key (used by the browser/client): READ-ONLY on all tables.
---   - service_role key (used only server-side): full CRUD access.
+--   - anon key (used by the browser/client): READ-ONLY on all tables (SELECT only).
+--   - service_role key (used only server-side): full CRUD access (bypasses RLS).
 --   This means public users can read templates/settings but CANNOT
 --   modify them without going through a server-side API route.
---   Since this platform uses the anon key client-side (Next.js 'use client'
---   components), all writes are permitted for now via a more open policy.
---   TODO for full hardening: move all writes to server-side API routes and
---   use the service_role key only there.
+--   Write operations (INSERT, UPDATE, DELETE) are fully restricted from public clients.
 -- =========================================================================
 
 -- 1. Create settings table
@@ -73,7 +70,7 @@ DROP POLICY IF EXISTS "Public full access templates" ON templates;
 DROP POLICY IF EXISTS "Public full access overrides" ON overrides;
 DROP POLICY IF EXISTS "Public full access hero_overrides" ON hero_overrides;
 
--- Also drop any existing split policies to avoid conflicts
+-- Also drop any existing split/write policies to avoid conflicts and restrict public writes
 DROP POLICY IF EXISTS "Public read settings" ON settings;
 DROP POLICY IF EXISTS "Public read templates" ON templates;
 DROP POLICY IF EXISTS "Public read overrides" ON overrides;
@@ -96,19 +93,11 @@ CREATE POLICY "Public read overrides"
 CREATE POLICY "Public read hero_overrides"
   ON hero_overrides FOR SELECT TO public USING (true);
 
--- 8. WRITE policies — currently open to anon for ease of internal use.
---    TODO: Restrict to service_role only once admin writes move to API routes.
-CREATE POLICY "Auth write settings"
-  ON settings FOR ALL TO public USING (true) WITH CHECK (true);
-
-CREATE POLICY "Auth write templates"
-  ON templates FOR ALL TO public USING (true) WITH CHECK (true);
-
-CREATE POLICY "Auth write overrides"
-  ON overrides FOR ALL TO public USING (true) WITH CHECK (true);
-
-CREATE POLICY "Auth write hero_overrides"
-  ON hero_overrides FOR ALL TO public USING (true) WITH CHECK (true);
+-- 8. WRITE policies — Restricted (read-only for public client)
+--    Since all writes are routed through secure API endpoints using the
+--    SUPABASE_SERVICE_ROLE_KEY (which bypasses RLS), we do NOT define any write policies.
+--    This ensures that client-side requests using the anon key cannot modify the database.
+--    (No policies defined for INSERT/UPDATE/DELETE means they are denied by default under RLS).
 
 -- 9. Prevent storing raw base64 image data in hero_overrides (size guard).
 --    bg_image should be NULL or a URL (not a data: URI) in production.

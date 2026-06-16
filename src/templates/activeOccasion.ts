@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { OCCASIONS, getOccasion, type OccasionKey, type OccasionMeta } from './types';
 import { supabase } from '@/utils/supabaseClient';
+import { secureAdminWrite } from '@/utils/adminDbClient';
 
 /**
  * "Active occasion" = the current site-wide mood.
@@ -72,9 +73,7 @@ export function useActiveOccasion() {
 
     // Sync with Supabase
     try {
-      await supabase
-        .from('settings')
-        .upsert({ key: 'active_occasion', value: next });
+      await secureAdminWrite('settings', 'upsert', { key: 'active_occasion', value: next });
     } catch (err) {
       console.error('Failed to save active occasion to Supabase:', err);
     }
