@@ -19,6 +19,7 @@ export function AdminDashboard() {
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showUploader, setShowUploader] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string; isSeed: boolean } | null>(null);
 
   if (!ready) {
     return <div className="mx-auto max-w-7xl px-4 py-20 text-center text-ink-500">جارٍ التحميل…</div>;
@@ -27,15 +28,6 @@ export function AdminDashboard() {
   const selected = templates.find((t) => t.id === selectedId) ?? null;
   const visibleCount = templates.filter((t) => !t.isHidden).length;
   const hiddenCount = templates.length - visibleCount;
-
-  const onDelete = (id: string, title: string, isSeed: boolean) => {
-    const msg = isSeed
-      ? `سيتم إخفاء القالب "${title}" من الواجهة العامة. تقدر تستعيده لاحقاً من نفس الصفحة. هل تريد المتابعة؟`
-      : `سيتم حذف القالب "${title}" نهائياً. هل أنت متأكد؟`;
-    if (!window.confirm(msg)) return;
-    deleteTemplate(id);
-    if (selectedId === id) setSelectedId(null);
-  };
 
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-6 page-enter">
@@ -142,7 +134,13 @@ export function AdminDashboard() {
                       </button>
                       {t.isHidden ? (
                         <button
-                          onClick={() => restoreTemplate(t.id)}
+                          onClick={async () => {
+                            try {
+                              await restoreTemplate(t.id);
+                            } catch (err) {
+                              alert('فشل في استعادة القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
+                            }
+                          }}
                           className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-ink-700 text-green-600 hover:text-green-700"
                           title="استعادة"
                         >
@@ -150,7 +148,10 @@ export function AdminDashboard() {
                         </button>
                       ) : (
                         <button
-                          onClick={() => onDelete(t.id, t.title, t.isSeed)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteTarget({ id: t.id, title: t.title, isSeed: t.isSeed });
+                          }}
                           className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-ink-700 text-red-500 hover:text-red-600"
                           title={t.isSeed ? 'إخفاء' : 'حذف'}
                         >
@@ -190,6 +191,58 @@ export function AdminDashboard() {
           )}
         </section>
       </div>
+
+      {/* Custom Premium Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-ink-900 border border-ink-100 dark:border-ink-800 rounded-3xl p-6 max-w-md w-full shadow-2xl text-right animate-fade-in">
+            <h3 className="font-display text-xl font-extrabold text-ink-900 dark:text-ink-50 flex items-center gap-3 justify-end">
+              <span>{deleteTarget.isSeed ? 'إخفاء القالب' : 'حذف القالب نهائياً'}</span>
+              <span className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-900/30 text-red-600 flex items-center justify-center shrink-0">
+                <Trash2 className="h-5 w-5" />
+              </span>
+            </h3>
+            
+            <p className="mt-4 text-sm text-ink-600 dark:text-ink-300 leading-relaxed">
+              {deleteTarget.isSeed ? (
+                <>
+                  هل أنت متأكد من إخفاء القالب <strong>"{deleteTarget.title}"</strong>؟ سيتم إخفاؤه من واجهة الموظفين، ويمكنك إعادته لاحقاً في أي وقت.
+                </>
+              ) : (
+                <>
+                  هل أنت متأكد من حذف القالب <strong>"{deleteTarget.title}"</strong> نهائياً؟ سيتم حذفه من قاعدة البيانات ولا يمكن التراجع عن هذا الإجراء.
+                </>
+              )}
+            </p>
+
+            <div className="mt-6 flex gap-3 justify-start border-t border-ink-105 dark:border-ink-800 pt-4">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="btn-ghost"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const target = deleteTarget;
+                  setDeleteTarget(null);
+                  try {
+                    await deleteTemplate(target.id);
+                    if (selectedId === target.id) setSelectedId(null);
+                  } catch (err) {
+                    alert('فشل في حذف القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
+                  }
+                }}
+                className="px-5 py-2.5 rounded-xl bg-red-650 text-white hover:bg-red-700 font-bold transition-all text-sm shadow-md shadow-red-600/10 hover:shadow-lg"
+              >
+                {deleteTarget.isSeed ? 'إخفاء القالب' : 'تأكيد الحذف'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

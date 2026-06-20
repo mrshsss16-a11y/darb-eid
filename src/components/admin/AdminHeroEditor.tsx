@@ -317,7 +317,7 @@ export function AdminHeroEditor() {
                     <span className="text-xs font-bold text-ink-700 dark:text-ink-200">
                       ارفع صورة خلفية
                     </span>
-                    <span className="text-[10px]">PNG · JPG · WebP (يتم الضغط تلقائياً)</span>
+                    <span className="text-[10px]">PNG · JPG · WebP (بالدقة الكاملة)</span>
                   </div>
                 )}
               </div>

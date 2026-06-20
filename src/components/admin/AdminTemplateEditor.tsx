@@ -36,6 +36,7 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
   const [format, setFormat] = useState<CanvasFormat>('square');
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const [customImages, setCustomImages] = useState<{
     square?: string;
@@ -44,6 +45,10 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
   }>({});
   const [uploadingFormat, setUploadingFormat] = useState<CanvasFormat | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const squareFileInputRef = useRef<HTMLInputElement | null>(null);
+  const storyFileInputRef = useRef<HTMLInputElement | null>(null);
+  const postFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (template) {
@@ -152,19 +157,10 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
     });
   };
 
-  if (!template || !style || !activeStyle) {
-    return (
-      <div className="card-surface p-8 text-center text-ink-500">
-        اختر قالباً من القائمة على اليمين لبدء التعديل.
-      </div>
-    );
-  }
-
-  const isSeed = seedTemplates.some((t) => t.id === template.id);
-
   const localTemplate = useMemo(() => {
     if (!template) return null;
-    if (isSeed) return template;
+    const isSeedTemp = seedTemplates.some((t) => t.id === template.id);
+    if (isSeedTemp) return template;
     return {
       ...template,
       customImage: customImages.square,
@@ -174,7 +170,17 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
         post: customImages.post,
       },
     };
-  }, [template, customImages, isSeed]);
+  }, [template, customImages]);
+
+  if (!template || !style || !activeStyle) {
+    return (
+      <div className="card-surface p-8 text-center text-ink-500">
+        اختر قالباً من القائمة على اليمين لبدء التعديل.
+      </div>
+    );
+  }
+
+  const isSeed = seedTemplates.some((t) => t.id === template.id);
 
   const onSave = async () => {
     if (!isSeed && !customImages.square) {
@@ -201,23 +207,33 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
       };
     }
 
-    await upsertOverride(template.id, patchData);
-    setSaving(false);
-    setSavedAt(Date.now());
-    setTimeout(() => setSavedAt(null), 2500);
+    try {
+      await upsertOverride(template.id, patchData);
+      setSavedAt(Date.now());
+      setTimeout(() => setSavedAt(null), 2500);
+    } catch (err) {
+      alert('فشل حفظ التعديلات: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const onDelete = () => {
-    const msg = isSeed
-      ? `سيتم إخفاء القالب "${template.title}" من الواجهة العامة. تقدر تستعيده بزر "إظهار" بعدها. هل تريد المتابعة؟`
-      : `سيتم حذف القالب "${template.title}" نهائياً. هل أنت متأكد؟`;
-    if (!window.confirm(msg)) return;
-    deleteTemplate(template.id);
-    onDeleted?.();
+  const onDeleteConfirm = async () => {
+    setShowDeleteConfirm(false);
+    try {
+      await deleteTemplate(template.id);
+      onDeleted?.();
+    } catch (err) {
+      alert('فشل في حذف القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
+    }
   };
 
-  const onRestore = () => {
-    restoreTemplate(template.id);
+  const onRestore = async () => {
+    try {
+      await restoreTemplate(template.id);
+    } catch (err) {
+      alert('فشل في استعادة القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
+    }
   };
 
   const isHidden = (template as any).isHidden as boolean | undefined;
@@ -257,7 +273,7 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
                 </button>
               ) : (
                 <button
-                  onClick={onDelete}
+                  onClick={() => setShowDeleteConfirm(true)}
                   className="btn-ghost text-red-600 hover:text-red-700"
                   title={isSeed ? 'إخفاء من الواجهة العامة' : 'حذف القالب نهائياً'}
                 >
@@ -337,7 +353,10 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
               {(['square', 'story', 'post'] as CanvasFormat[]).map((fmt) => {
                 const img = customImages[fmt];
                 const isUploading = uploadingFormat === fmt;
-                const fileInputRef = useRef<HTMLInputElement | null>(null);
+                const fileInputRef =
+                  fmt === 'square' ? squareFileInputRef :
+                  fmt === 'story' ? storyFileInputRef :
+                  postFileInputRef;
 
                 let label = 'مربع (1:1) - أساسي';
                 if (fmt === 'story') label = 'ستوري (9:16) - اختياري';
@@ -421,6 +440,49 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
           <PositionControls value={activeStyle} onChange={onStyleChange} />
         </div>
       </div>
+
+      {/* Custom Premium Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-ink-900 border border-ink-100 dark:border-ink-800 rounded-3xl p-6 max-w-md w-full shadow-2xl text-right animate-fade-in">
+            <h3 className="font-display text-xl font-extrabold text-ink-900 dark:text-ink-50 flex items-center gap-3 justify-end">
+              <span>{isSeed ? 'إخفاء القالب' : 'حذف القالب نهائياً'}</span>
+              <span className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-900/30 text-red-600 flex items-center justify-center shrink-0">
+                <Trash2 className="h-5 w-5" />
+              </span>
+            </h3>
+            
+            <p className="mt-4 text-sm text-ink-600 dark:text-ink-300 leading-relaxed">
+              {isSeed ? (
+                <>
+                  هل أنت متأكد من إخفاء القالب <strong>"{template.title}"</strong>؟ سيتم إخفاؤه من واجهة الموظفين، ويمكنك إعادته لاحقاً في أي وقت.
+                </>
+              ) : (
+                <>
+                  هل أنت متأكد من حذف القالب <strong>"{template.title}"</strong> نهائياً؟ سيتم حذفه من قاعدة البيانات ولا يمكن التراجع عن هذا الإجراء.
+                </>
+              )}
+            </p>
+
+            <div className="mt-6 flex gap-3 justify-start border-t border-ink-105 dark:border-ink-800 pt-4">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="btn-ghost"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={onDeleteConfirm}
+                className="px-5 py-2.5 rounded-xl bg-red-650 text-white hover:bg-red-700 font-bold transition-all text-sm shadow-md shadow-red-600/10 hover:shadow-lg"
+              >
+                {isSeed ? 'إخفاء القالب' : 'تأكيد الحذف'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

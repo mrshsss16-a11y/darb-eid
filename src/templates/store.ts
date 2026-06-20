@@ -58,13 +58,23 @@ function loadOverrides(): Overrides {
 function saveStored(items: StoredTemplate[]) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  } catch {}
+  } catch (err: any) {
+    if (err.name === 'QuotaExceededError' || err.code === 22) {
+      throw new StorageQuotaError();
+    }
+    throw err;
+  }
 }
 
 function saveOverrides(o: Overrides) {
   try {
     window.localStorage.setItem(OVERRIDES_KEY, JSON.stringify(o));
-  } catch {}
+  } catch (err: any) {
+    if (err.name === 'QuotaExceededError' || err.code === 22) {
+      throw new StorageQuotaError();
+    }
+    throw err;
+  }
 }
 
 /** Resolve a stored template back into a live Template (with renderer). */
@@ -249,25 +259,30 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
         const currentOverride = overrides[id] || {};
         const nextOverride = { ...currentOverride, ...patch };
 
+        // Sync with Supabase overrides table first
+        await secureAdminWrite('overrides', 'upsert', {
+          id,
+          title: nextOverride.title ?? null,
+          default_name_style: nextOverride.defaultNameStyle ?? null,
+          hidden: nextOverride.hidden ?? false,
+        });
+
         setOverrides((prev) => {
           const next = { ...prev, [id]: nextOverride };
           saveOverrides(next);
           return next;
         });
-
-        // Sync with Supabase overrides table
-        try {
-          await secureAdminWrite('overrides', 'upsert', {
-            id,
-            title: nextOverride.title ?? null,
-            default_name_style: nextOverride.defaultNameStyle ?? null,
-            hidden: nextOverride.hidden ?? false,
-          });
-        } catch (err) {
-          console.error('Failed to save override to Supabase:', err);
-        }
       } else {
-        // It's a custom template, update templates table
+        // Sync with Supabase templates table first
+        const updateData: any = {
+          title: patch.title,
+          default_name_style: patch.defaultNameStyle,
+        };
+        if (patch.source) {
+          updateData.source = patch.source;
+        }
+        await secureAdminWrite('templates', 'update', updateData, { key: 'id', val: id });
+
         setStoredExtra((prev) => {
           const i = prev.findIndex((t) => t.id === id);
           if (i === -1) return prev;
@@ -281,44 +296,26 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
           saveStored(next);
           return next;
         });
-
-        // Sync with Supabase templates table
-        try {
-          const updateData: any = {
-            title: patch.title,
-            default_name_style: patch.defaultNameStyle,
-          };
-          if (patch.source) {
-            updateData.source = patch.source;
-          }
-          await secureAdminWrite('templates', 'update', updateData, { key: 'id', val: id });
-        } catch (err) {
-          console.error('Failed to update custom template in Supabase:', err);
-        }
       }
     },
     [overrides],
   );
 
   const addCustomTemplate = useCallback(async (item: StoredTemplate) => {
+    // Sync with Supabase first
+    await secureAdminWrite('templates', 'insert', {
+      id: item.id,
+      title: item.title,
+      occasion: item.occasion,
+      occasion_key: item.occasionKey || null,
+      palette: item.palette,
+      default_name_style: item.defaultNameStyle,
+      source: item.source,
+    });
+
     const next = [...storedExtra, item];
     saveStored(next);
     setStoredExtra(next);
-
-    // Sync with Supabase
-    try {
-      await secureAdminWrite('templates', 'insert', {
-        id: item.id,
-        title: item.title,
-        occasion: item.occasion,
-        occasion_key: item.occasionKey || null,
-        palette: item.palette,
-        default_name_style: item.defaultNameStyle,
-        source: item.source,
-      });
-    } catch (err) {
-      console.error('Failed to add custom template to Supabase:', err);
-    }
     return item;
   }, [storedExtra]);
 
@@ -326,59 +323,49 @@ export function useTemplates(opts?: { includeHidden?: boolean }) {
     const isSeed = seedTemplates.some((t) => t.id === id);
     if (isSeed) {
       const currentOverride = overrides[id] || {};
+
+      // Sync with Supabase first
+      await secureAdminWrite('overrides', 'upsert', {
+        id,
+        title: currentOverride.title ?? null,
+        default_name_style: currentOverride.defaultNameStyle ?? null,
+        hidden: true,
+      });
+
       setOverrides((prev) => {
         const next = { ...prev, [id]: { ...prev[id], hidden: true } };
         saveOverrides(next);
         return next;
       });
-
-      // Sync with Supabase
-      try {
-        await secureAdminWrite('overrides', 'upsert', {
-          id,
-          title: currentOverride.title ?? null,
-          default_name_style: currentOverride.defaultNameStyle ?? null,
-          hidden: true,
-        });
-      } catch (err) {
-        console.error('Failed to sync hidden override to Supabase:', err);
-      }
     } else {
+      // Sync with Supabase first
+      await secureAdminWrite('templates', 'delete', undefined, { key: 'id', val: id });
+
       setStoredExtra((prev) => {
         const next = prev.filter((t) => t.id !== id);
         saveStored(next);
         return next;
       });
-
-      // Sync with Supabase
-      try {
-        await secureAdminWrite('templates', 'delete', undefined, { key: 'id', val: id });
-      } catch (err) {
-        console.error('Failed to delete custom template from Supabase:', err);
-      }
     }
   }, [overrides]);
 
   const restoreTemplate = useCallback(async (id: string) => {
     const currentOverride = overrides[id] || {};
+
+    // Sync with Supabase first
+    await secureAdminWrite('overrides', 'upsert', {
+      id,
+      title: currentOverride.title ?? null,
+      default_name_style: currentOverride.defaultNameStyle ?? null,
+      hidden: false,
+    });
+
     setOverrides((prev) => {
       if (!prev[id]?.hidden) return prev;
       const next = { ...prev, [id]: { ...prev[id], hidden: false } };
       saveOverrides(next);
       return next;
     });
-
-    // Sync with Supabase
-    try {
-      await secureAdminWrite('overrides', 'upsert', {
-        id,
-        title: currentOverride.title ?? null,
-        default_name_style: currentOverride.defaultNameStyle ?? null,
-        hidden: false,
-      });
-    } catch (err) {
-      console.error('Failed to restore override to Supabase:', err);
-    }
   }, [overrides]);
 
   const resetAll = useCallback(async () => {

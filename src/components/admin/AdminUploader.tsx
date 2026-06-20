@@ -122,6 +122,7 @@ export function AdminUploader() {
       },
     };
 
+    setBusy(true);
     try {
       await addCustomTemplate(payload);
       setDone(`تمت إضافة "${cleanTitle}" بنجاح`);
@@ -135,6 +136,8 @@ export function AdminUploader() {
       } else {
         setError('فشل حفظ القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
       }
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -287,7 +290,7 @@ export function AdminUploader() {
 
                   {preview && (
                     <div className="text-[10px] font-mono text-ink-500 dark:text-ink-400 text-center">
-                      {origBytes != null ? formatBytes(origBytes) : ''} → <span className="text-green-600 dark:text-green-400">{formatBytes(preview.bytes)}</span>
+                      الحجم: {formatBytes(preview.bytes)}
                     </div>
                   )}
 

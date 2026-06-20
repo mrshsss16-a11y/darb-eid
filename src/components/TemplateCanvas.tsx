@@ -95,21 +95,47 @@ export const TemplateCanvas = forwardRef<HTMLDivElement, TemplateCanvasProps>(
       >
         {/* Artwork layer */}
         {customImgSrc && !imgError ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={customImgSrc}
-            alt={template.title}
-            onError={() => setImgError(true)}
+          <div
             style={{
               position: 'absolute',
               inset: 0,
               width: '100%',
               height: '100%',
-              objectFit: 'cover',
-              display: 'block',
               zIndex: 1,
+              overflow: 'hidden',
+              backgroundColor: template.palette.bg,
             }}
-          />
+          >
+            {/* Blurred background fallback */}
+            <img
+              src={customImgSrc}
+              alt=""
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                filter: 'blur(20px) brightness(0.8)',
+                transform: 'scale(1.15)',
+                opacity: 0.65,
+              }}
+            />
+            {/* Main centered image (no crop) */}
+            <img
+              src={customImgSrc}
+              alt={template.title}
+              onError={() => setImgError(true)}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                display: 'block',
+              }}
+            />
+          </div>
         ) : customImgSrc && imgError ? (
           <div
             style={{
