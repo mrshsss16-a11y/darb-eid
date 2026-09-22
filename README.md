@@ -40,9 +40,9 @@ npm install
 # 2. Copy environment variables
 cp .env.example .env.local
 #    then open .env.local and set:
-#    - NEXT_PUBLIC_ADMIN_PASSWORD
-#    - NEXT_PUBLIC_SITE_URL
-#    - NEXT_PUBLIC_SHARE_TEXT
+#    - ADMIN_PASSWORD, ADMIN_SESSION_SECRET (server-only)
+#    - NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+#    - NEXT_PUBLIC_SITE_URL, NEXT_PUBLIC_SHARE_TEXT
 
 # 3. Start the dev server
 npm run dev
@@ -64,8 +64,9 @@ npm start
 
 1. Push this repo to GitHub / GitLab / Bitbucket.
 2. Import the project at <https://vercel.com/new>.
-3. Add the three `NEXT_PUBLIC_*` environment variables in **Project Settings → Environment Variables**.
-4. Click **Deploy**.
+3. Add every variable from `.env.example` in **Project Settings → Environment Variables** (secrets without `NEXT_PUBLIC_` are server-only).
+4. Run `supabase_schema.sql` then `supabase_storage.sql` in the Supabase SQL editor.
+5. Click **Deploy**.
 
 ### Any Node host
 
@@ -151,15 +152,24 @@ For CSS-level tokens (used by `globals.css` for raw `var(--color-brand)` referen
 
 ## 🔑 Environment variables
 
-| Variable | Purpose | Default |
+| Variable | Scope | Purpose |
 |---|---|---|
-| `NEXT_PUBLIC_ADMIN_PASSWORD` | Password to enter `/admin` | `darb2025` |
-| `NEXT_PUBLIC_SITE_URL` | URL embedded in the optional QR code | `https://darb.sa` |
-| `NEXT_PUBLIC_SHARE_TEXT` | Default text for WhatsApp share | Arabic Eid greeting |
+| `ADMIN_PASSWORD` | server | Password checked by `POST /api/admin-auth` (never shipped to the browser) |
+| `ADMIN_SESSION_SECRET` | server | HMAC key for the signed `admin_token` session cookie. Rotate to log everyone out. Falls back to `sha256(ADMIN_PASSWORD)` if unset |
+| `SUPABASE_SERVICE_ROLE_KEY` | server | Bypasses RLS; used only by `/api/admin/db` and `/api/admin/upload` |
+| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client | Read-only access (RLS: SELECT only) + Realtime |
+| `NEXT_PUBLIC_SITE_URL` | client | URL embedded in the optional QR code, `metadataBase` |
+| `NEXT_PUBLIC_SHARE_TEXT` | client | Default text for WhatsApp share |
 
-> The admin gate is intentionally simple (client-side password). For production with sensitive permissions, replace `src/components/admin/AdminGate.tsx` with NextAuth.js or your corporate SSO.
+## 🛡️ Security model
 
----
+- **Auth**: `/api/admin-auth` verifies the password in constant time and issues an HMAC-SHA256-signed, HttpOnly, `Secure`, `SameSite=Lax` cookie (`src/utils/adminSession.ts`). The password is never stored in a cookie. Sessions last 7 days; `POST /api/admin-logout` clears them; `GET /api/admin/session` tells the client gate whether it is still valid.
+- **Brute force**: 5 failed attempts per IP → 15 min lock, plus a 300 ms delay on every failure. The limiter is in-memory (per serverless instance). For production add a Vercel WAF rate-limit rule on `/api/admin-auth` or swap in Upstash Ratelimit.
+- **Middleware** (`src/middleware.ts`, Edge): rejects `/api/admin/*` without a valid session, marks `/admin` `no-store` + `noindex`.
+- **Writes**: only `POST /api/admin/db` (service-role key) can mutate data. It whitelists tables, actions, columns and filter keys, caps bodies at 6 MB / 200 rows, and requires a same-origin `Origin`/`Sec-Fetch-Site` (CSRF). The anon key is SELECT-only via RLS.
+- **Uploads**: `POST /api/admin/upload` puts raster images (magic-byte sniffed, ≤ 8 MB, no SVG) into the public Storage bucket `templates` and returns a CDN URL; large files use a signed direct-to-Storage PUT. Bucket + policies: `supabase_storage.sql`.
+- **Headers/CSP**: set in `next.config.mjs`. `'unsafe-eval'` is only emitted in development (Next dev tooling); production CSP has no eval. API routes are `no-store`; `/fonts` and `/_next/static` are immutable-cached.
+- **Realtime**: `wss://*.supabase.co` stays in `connect-src`.
 
 ## 🗃️ Persisting templates across users
 

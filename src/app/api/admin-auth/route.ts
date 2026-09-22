@@ -1,30 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import {
+  ADMIN_COOKIE,
+  SESSION_TTL_SECONDS,
+  createSessionToken,
+  sessionCookieOptions,
+  isSameOriginRequest,
+} from '@/utils/adminSession';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/admin-auth
  *
- * Verifies the admin password server-side.
- * The password is stored in ADMIN_PASSWORD (no NEXT_PUBLIC_ prefix) so it
- * is NEVER shipped in the client bundle.
+ * Verifies the admin password server-side and issues an HMAC-signed session
+ * cookie (see src/utils/adminSession.ts). The password itself is NEVER put in
+ * a cookie or shipped to the browser.
  *
  * Security measures:
  *  1. Password stored server-side only (ADMIN_PASSWORD env var).
- *  2. In-memory rate limiting: max 5 attempts per IP per 15 minutes.
- *     Resets after a successful login or after the window expires.
+ *  2. In-memory rate limiting: MAX_ATTEMPTS per IP per window, then a hard
+ *     lock for LOCK_MS. Every failed attempt is additionally delayed by
+ *     FAIL_DELAY_MS to slow brute force.
+ *     NOTE: the map resets on every cold start (serverless). For persistent
+ *     limiting in production use Upstash Redis / Vercel KV.
  *  3. Constant-time comparison to prevent timing attacks.
- *  4. Generic error messages to avoid user enumeration.
+ *  4. Generic error messages.
+ *  5. Same-origin check (CSRF) + SameSite=Lax, HttpOnly, Secure cookie.
  */
 
-// ─── In-memory rate limiter ────────────────────────────────────────────────
-// NOTE: This resets on every cold-start (serverless). For persistent rate
-// limiting in production, replace with Redis / Upstash.
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const LOCK_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
+const FAIL_DELAY_MS = 300;
+const MAX_BODY_BYTES = 4 * 1024;
 
 interface RateLimitEntry {
   count: number;
   resetAt: number;
+  lockedUntil?: number;
 }
 
 const attempts = new Map<string, RateLimitEntry>();
@@ -37,88 +52,111 @@ function getClientIp(req: NextRequest): string {
   );
 }
 
-function isRateLimited(ip: string): boolean {
+/** Milliseconds remaining on a lock, or 0 when the IP may try. */
+function lockRemaining(ip: string): number {
   const entry = attempts.get(ip);
   const now = Date.now();
+  if (!entry) return 0;
+  if (entry.lockedUntil && now < entry.lockedUntil) return entry.lockedUntil - now;
+  if (now > entry.resetAt) attempts.delete(ip);
+  return 0;
+}
 
+function recordFailure(ip: string) {
+  const now = Date.now();
+  const entry = attempts.get(ip);
   if (!entry || now > entry.resetAt) {
-    // Fresh window
     attempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return false;
+    return;
   }
-
-  if (entry.count >= MAX_ATTEMPTS) {
-    return true;
-  }
-
   entry.count += 1;
-  return false;
+  if (entry.count >= MAX_ATTEMPTS) {
+    entry.lockedUntil = now + LOCK_MS;
+    entry.resetAt = now + LOCK_MS;
+  }
+  // Opportunistic GC so the map cannot grow without bound.
+  if (attempts.size > 5000) {
+    attempts.forEach((v, k) => {
+      if (now > v.resetAt) attempts.delete(k);
+    });
+  }
 }
 
 function clearAttempts(ip: string) {
   attempts.delete(ip);
 }
 
-// ─── Constant-time string comparison (prevents timing attacks) ─────────────
+/** Constant-time comparison over UTF-8 bytes (length difference does not short-circuit). */
 function safeCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
+  const ea = new TextEncoder().encode(a);
+  const eb = new TextEncoder().encode(b);
+  let result = ea.length ^ eb.length;
+  const n = Math.max(ea.length, eb.length);
+  for (let i = 0; i < n; i++) result |= (ea[i] ?? 0) ^ (eb[i] ?? 0);
   return result === 0;
 }
 
-// ─── Route handler ─────────────────────────────────────────────────────────
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const NO_STORE = { 'Cache-Control': 'no-store' };
+
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
 
-  // Check rate limit BEFORE reading the body.
-  if (isRateLimited(ip)) {
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ ok: false, message: 'طلب غير صالح' }, { status: 403, headers: NO_STORE });
+  }
+
+  const remaining = lockRemaining(ip);
+  if (remaining > 0) {
     return NextResponse.json(
       { ok: false, message: 'تجاوزت عدد المحاولات المسموح بها. حاول مرة أخرى بعد 15 دقيقة.' },
-      { status: 429 },
+      { status: 429, headers: { ...NO_STORE, 'Retry-After': String(Math.ceil(remaining / 1000)) } },
     );
   }
 
   try {
-    const body = await req.json();
-    const { password } = body;
+    const raw = await req.text();
+    if (raw.length > MAX_BODY_BYTES) {
+      return NextResponse.json({ ok: false, message: 'طلب غير صالح' }, { status: 413, headers: NO_STORE });
+    }
+    const { password } = JSON.parse(raw || '{}');
     const expected = process.env.ADMIN_PASSWORD;
 
     if (!expected) {
-      // Server misconfiguration — fail closed, don't leak details.
       console.error('[admin-auth] ADMIN_PASSWORD env var is not set.');
       return NextResponse.json(
         { ok: false, message: 'خطأ في إعدادات الخادم. تواصل مع المسؤول.' },
-        { status: 500 },
+        { status: 500, headers: NO_STORE },
       );
     }
 
-    if (typeof password !== 'string' || !safeCompare(password, expected)) {
+    if (typeof password !== 'string' || password.length > 512 || !safeCompare(password, expected)) {
+      recordFailure(ip);
+      await sleep(FAIL_DELAY_MS);
       return NextResponse.json(
         { ok: false, message: 'كلمة المرور غير صحيحة' },
-        { status: 401 },
+        { status: 401, headers: NO_STORE },
       );
     }
 
-    // Success — clear rate limit for this IP.
+    const token = await createSessionToken();
+    if (!token) {
+      return NextResponse.json(
+        { ok: false, message: 'خطأ في إعدادات الخادم. تواصل مع المسؤول.' },
+        { status: 500, headers: NO_STORE },
+      );
+    }
+
     clearAttempts(ip);
 
-    cookies().set('admin_token', expected, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 60 * 60 * 24 * 7, // 1 week
-      path: '/',
+    cookies().set(ADMIN_COOKIE, token, {
+      ...sessionCookieOptions(),
+      maxAge: SESSION_TTL_SECONDS,
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { headers: NO_STORE });
   } catch {
-    return NextResponse.json(
-      { ok: false, message: 'طلب غير صالح' },
-      { status: 400 },
-    );
+    return NextResponse.json({ ok: false, message: 'طلب غير صالح' }, { status: 400, headers: NO_STORE });
   }
 }
 

@@ -3,9 +3,29 @@
 import { useRef, useState } from 'react';
 import { Upload, ImageIcon, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useTemplates, StorageQuotaError } from '@/templates/store';
+import { handleAdminWriteError } from './AdminGate';
 import type { StoredTemplate, OccasionKey, CanvasFormat } from '@/templates/types';
 import { OCCASIONS } from '@/templates/types';
-import { compressImageFile, formatBytes, type CompressedImage } from '@/utils/imageProcessing';
+import { uploadImageToStorage, validateImageFile, formatBytes } from '@/utils/imageProcessing';
+
+/** A picked image: already uploaded to Supabase Storage, `url` is its public https URL. */
+interface PickedImage {
+  url: string;
+  width: number;
+  height: number;
+  bytes: number;
+  warning?: string;
+}
+
+/** Map upload-route failures to an actionable Arabic message. */
+function describeUploadError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/upload failed|could not create upload url|server configuration error|bucket/i.test(msg)) {
+    return 'فشل رفع الصورة إلى التخزين: يبدو أن حاوية التخزين "templates" غير موجودة أو غير مهيّأة. شغّل ملف supabase_storage.sql في لوحة Supabase ثم أعد المحاولة.';
+  }
+  return msg || 'فشل رفع الصورة.';
+}
+
 import { useTheme } from '@/components/ThemeProvider';
 
 export function AdminUploader() {
@@ -22,7 +42,7 @@ export function AdminUploader() {
   const [occasionKey, setOccasionKey] = useState<OccasionKey>('eid-adha');
   const [draggingFormat, setDraggingFormat] = useState<CanvasFormat | null>(null);
 
-  const [previews, setPreviews] = useState<Record<CanvasFormat, CompressedImage | null>>({
+  const [previews, setPreviews] = useState<Record<CanvasFormat, PickedImage | null>>({
     square: null,
     story: null,
     post: null,
@@ -34,7 +54,7 @@ export function AdminUploader() {
     post: null,
   });
 
-  const { addCustomTemplate } = useTemplates({ includeHidden: true });
+  const { addCustomTemplate } = useTemplates({ includeHidden: true, isAdmin: true });
 
   const reset = () => {
     setPreviews({ square: null, story: null, post: null });
@@ -56,16 +76,23 @@ export function AdminUploader() {
       setError('الملف ليس صورة. اختر ملف بصيغة PNG أو JPG أو WebP.');
       return;
     }
-    if (file.size > 20 * 1024 * 1024) {
-      setError(`حجم الملف ${formatBytes(file.size)} كبير جداً. الحد الأقصى 20 ميجابايت.`);
+    let warning: string | undefined;
+    try {
+      warning = validateImageFile(file);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ملف غير صالح.');
       return;
     }
 
     setBusy(true);
     setOriginalSizes((prev) => ({ ...prev, [format]: file.size }));
     try {
-      const compressed = await compressImageFile(file);
-      setPreviews((prev) => ({ ...prev, [format]: compressed }));
+      // Upload the original to Supabase Storage; only the https URL is persisted.
+      const uploaded = await uploadImageToStorage(file, format);
+      setPreviews((prev) => ({
+        ...prev,
+        [format]: { url: uploaded.url, width: uploaded.width, height: uploaded.height, bytes: uploaded.bytes, warning },
+      }));
       
       // Auto-fill title from filename if empty and it's the square/base format
       if (!title.trim() && format === 'square') {
@@ -73,7 +100,7 @@ export function AdminUploader() {
         setTitle(base || 'قالب جديد');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'فشل قراءة الصورة.');
+      if (!handleAdminWriteError(err)) setError(describeUploadError(err));
     } finally {
       setBusy(false);
     }
@@ -113,11 +140,11 @@ export function AdminUploader() {
       },
       source: {
         kind: 'custom',
-        imageDataUrl: previews.square.dataUrl,
+        imageDataUrl: previews.square.url,
         images: {
-          square: previews.square.dataUrl,
-          story: previews.story?.dataUrl || undefined,
-          post: previews.post?.dataUrl || undefined,
+          square: previews.square.url,
+          story: previews.story?.url || undefined,
+          post: previews.post?.url || undefined,
         },
       },
     };
@@ -129,7 +156,9 @@ export function AdminUploader() {
       reset();
       setTimeout(() => setDone(null), 4000);
     } catch (err) {
-      if (err instanceof StorageQuotaError) {
+      if (handleAdminWriteError(err)) {
+        // login re-shown by AdminGate
+      } else if (err instanceof StorageQuotaError) {
         setError(
           'الذاكرة المحلية ممتلئة. احذف قالب مرفوع قديم من القائمة بالأسفل ثم حاول مرة ثانية.'
         );
@@ -256,7 +285,7 @@ export function AdminUploader() {
                     {preview ? (
                       <>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={preview.dataUrl} alt={label} className="absolute inset-0 w-full h-full object-cover z-0" />
+                        <img src={preview.url} alt={label} crossOrigin="anonymous" className="absolute inset-0 w-full h-full object-cover z-0" />
                         <div className="absolute inset-0 bg-black/40 z-10 opacity-0 hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 p-2">
                           <button
                             onClick={(e) => {
@@ -291,6 +320,9 @@ export function AdminUploader() {
                   {preview && (
                     <div className="text-[10px] font-mono text-ink-500 dark:text-ink-400 text-center">
                       الحجم: {formatBytes(preview.bytes)}
+                      {preview.warning && (
+                        <span className="block mt-1 text-amber-600 dark:text-amber-400 font-bold">{preview.warning}</span>
+                      )}
                     </div>
                   )}
 

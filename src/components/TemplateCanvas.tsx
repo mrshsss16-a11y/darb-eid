@@ -1,6 +1,6 @@
 'use client';
 
-import { forwardRef, useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Template, CanvasFormat, NameStyle } from '@/templates/types';
 import { FORMAT_DIMENSIONS } from '@/templates/types';
 import { fitTextToWidth } from '@/utils/autoFit';
@@ -46,17 +46,36 @@ export const TemplateCanvas = forwardRef<HTMLDivElement, TemplateCanvasProps>(
     const cssH = (cssW / dims.w) * dims.h;
 
     const customImgSrc = template.customImages?.[format] || template.customImage;
+    // Remote (http/https) images need CORS for html-to-image to rasterise
+    // them; data:/blob: URLs must NOT carry crossOrigin (some browsers then
+    // refuse to paint them). Supabase Storage sends `Access-Control-Allow-Origin: *`.
+    const imgCrossOrigin = /^https?:\/\//i.test(customImgSrc || '') ? 'anonymous' : undefined;
     const fitRef = useRef<HTMLSpanElement | null>(null);
     const [imgError, setImgError] = useState(false);
     useEffect(() => { setImgError(false); }, [customImgSrc]);
 
-    // Auto-fit the name if it would overflow the chosen max width.
+    // Auto-fit must measure with the REAL font: a width measured with the
+    // fallback font is wrong (DIN Next Arabic is narrower than system Arabic).
+    // Re-run once the FontFaceSet settles, and again on every relevant change.
+    const [fontsReady, setFontsReady] = useState(false);
     useEffect(() => {
+      let cancelled = false;
+      const fs = (typeof document !== 'undefined' && (document as any).fonts) as FontFaceSet | undefined;
+      if (!fs) { setFontsReady(true); return; }
+      const weight = nameStyle.weight ?? 700;
+      Promise.all([
+        fs.load(`${weight} 48px "DIN Next Arabic"`, 'اسم').catch(() => null),
+        fs.ready.catch(() => null),
+      ]).then(() => { if (!cancelled) setFontsReady(true); });
+      return () => { cancelled = true; };
+    }, [nameStyle.weight]);
+
+    const maxPx = (nameStyle.maxWidthPct / 100) * cssW;
+    useLayoutEffect(() => {
       const el = fitRef.current;
       if (!el) return;
-      const maxPx = (nameStyle.maxWidthPct / 100) * cssW;
-      fitTextToWidth(el, maxPx);
-    }, [employeeName, nameStyle.maxWidthPct, nameStyle.fontSizePct, cssW]);
+      fitTextToWidth(el, maxPx, nameStyle.align);
+    }, [employeeName, maxPx, nameStyle.fontSizePct, nameStyle.weight, nameStyle.align, cssW, fontsReady]);
 
     const trimmed = employeeName.trim();
     const isPlaceholder = trimmed.length === 0;
@@ -110,6 +129,7 @@ export const TemplateCanvas = forwardRef<HTMLDivElement, TemplateCanvasProps>(
             <img
               src={customImgSrc}
               alt=""
+              crossOrigin={imgCrossOrigin}
               style={{
                 position: 'absolute',
                 inset: 0,
@@ -125,6 +145,7 @@ export const TemplateCanvas = forwardRef<HTMLDivElement, TemplateCanvasProps>(
             <img
               src={customImgSrc}
               alt={template.title}
+              crossOrigin={imgCrossOrigin}
               onError={() => setImgError(true)}
               style={{
                 position: 'absolute',
@@ -173,15 +194,20 @@ export const TemplateCanvas = forwardRef<HTMLDivElement, TemplateCanvasProps>(
           </div>
         )}
 
-        {/* Name overlay */}
+        {/* Name overlay.
+            No maxWidth on the wrapper on purpose: the wrapper must shrink-wrap
+            the (nowrap) name so `translate(-50%|-100%|0)` anchors the real box;
+            overflow is handled by the scale() auto-fit on the span, whose
+            transform-origin matches the same anchor. */}
         <div
+          data-export-skip={isPlaceholder ? 'true' : undefined}
           style={{
             position: 'absolute',
             left: `${nameStyle.x}%`,
             top: `${nameStyle.y}%`,
             transform: `translate(${translateX}, -50%)`,
-            maxWidth: `${nameStyle.maxWidthPct}%`,
             textAlign: nameStyle.align,
+            whiteSpace: 'nowrap',
             pointerEvents: 'none',
             direction: 'rtl',
             zIndex: 2,
@@ -190,7 +216,13 @@ export const TemplateCanvas = forwardRef<HTMLDivElement, TemplateCanvasProps>(
           <span
             ref={fitRef}
             className="fit-text"
+            dir="auto"
+            data-fit-max={maxPx}
+            data-fit-align={nameStyle.align}
             style={{
+              display: 'inline-block',
+              whiteSpace: 'nowrap',
+              unicodeBidi: 'plaintext',
               fontSize: `${fontPx}px`,
               color: nameStyle.color,
               fontWeight: nameStyle.weight ?? 700,
@@ -204,7 +236,10 @@ export const TemplateCanvas = forwardRef<HTMLDivElement, TemplateCanvasProps>(
                   ? `0 ${cssW * 0.002}px ${cssW * 0.018}px rgba(0,0,0,0.45),
                      0 ${cssW * 0.001}px ${cssW * 0.003}px rgba(0,0,0,0.3)`
                   : 'none',
-              transition: 'opacity 150ms ease-out',
+              // NOTE: no CSS transition here on purpose — html-to-image
+              // snapshots the *computed* mid-transition opacity, which
+              // produced a 35%-faded name in exports (throttled tabs never
+              // finish the transition at all).
             }}
           >
             {displayName}

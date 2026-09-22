@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ShieldCheck, LogOut, Loader2 } from 'lucide-react';
+import { checkAdminSession, AdminSessionExpiredError } from '@/utils/adminDbClient';
 
 /**
  * Lightweight client-side password gate.
@@ -10,26 +11,64 @@ import { ShieldCheck, LogOut, Loader2 } from 'lucide-react';
  *  - Password is verified via POST /api/admin-auth (server-side Route Handler).
  *  - The actual password value is stored in ADMIN_PASSWORD env var (NO NEXT_PUBLIC_
  *    prefix) so it is NEVER included in the client bundle or visible in DevTools.
- *  - SessionStorage only stores a boolean flag ("logged in this tab"), never the
- *    password itself.
+ *  - The HttpOnly session cookie is the single source of truth: on mount we ask
+ *    GET /api/admin/session whether it is still valid. Nothing is kept in
+ *    sessionStorage/localStorage.
+ *  - Write handlers that receive `AdminSessionExpiredError` (401 from the
+ *    gateway) call `notifyAdminSessionExpired()` so the login form re-appears.
  *
  * For production-grade auth, replace this with NextAuth + an Identity Provider
  * (Microsoft 365 / Google Workspace SSO).
  */
-const STORAGE_KEY = 'darb-admin-ok';
+const SESSION_EXPIRED_EVENT = 'darb-admin-session-expired';
+const LEGACY_FLAG_KEY = 'darb-admin-ok';
+
+/** Re-show the admin login (call after catching AdminSessionExpiredError). */
+export function notifyAdminSessionExpired() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+}
+
+/**
+ * Helper for write handlers: if `err` is a session-expiry error, re-show the
+ * login and return true; otherwise return false so the caller shows its own
+ * error message.
+ */
+export function handleAdminWriteError(err: unknown): boolean {
+  if (err instanceof AdminSessionExpiredError) {
+    notifyAdminSessionExpired();
+    return true;
+  }
+  return false;
+}
 
 export function AdminGate({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [expiredNotice, setExpiredNotice] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-    if (sessionStorage.getItem(STORAGE_KEY) === '1') {
-      setAuthed(true);
-    }
+    let active = true;
+    try {
+      sessionStorage.removeItem(LEGACY_FLAG_KEY);
+    } catch {}
+    checkAdminSession().then((ok) => {
+      if (!active) return;
+      setAuthed(ok);
+      setChecking(false);
+    });
+
+    const onExpired = () => {
+      setAuthed(false);
+      setExpiredNotice(true);
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => {
+      active = false;
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    };
   }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -47,8 +86,8 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
       });
 
       if (res.ok) {
-        sessionStorage.setItem(STORAGE_KEY, '1');
         setAuthed(true);
+        setExpiredNotice(false);
         setError(null);
       } else {
         const data = await res.json().catch(() => ({}));
@@ -62,14 +101,23 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const logout = async () => {
-    sessionStorage.removeItem(STORAGE_KEY);
+  const logout = useCallback(async () => {
     setAuthed(false);
     setPassword('');
+    setExpiredNotice(false);
     try {
-      await fetch('/api/admin-logout', { method: 'POST' });
+      await fetch('/api/admin-logout', { method: 'POST', credentials: 'same-origin' });
     } catch {}
-  };
+  }, []);
+
+  if (checking) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-24 text-center text-ink-500">
+        <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+        <p className="mt-3 text-sm">جارٍ التحقق من الجلسة…</p>
+      </div>
+    );
+  }
 
   if (!authed) {
     return (
@@ -84,6 +132,11 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           <p className="mt-2 text-sm text-ink-500 dark:text-ink-400">
             هذه المنطقة محمية. الرجاء إدخال كلمة المرور الإدارية.
           </p>
+          {expiredNotice && (
+            <p className="mt-3 text-sm font-bold text-amber-700 dark:text-amber-400">
+              انتهت جلسة الإدارة. سجّل الدخول مرة أخرى للمتابعة.
+            </p>
+          )}
 
           <form onSubmit={onSubmit} className="mt-6 space-y-3 text-right">
             <input

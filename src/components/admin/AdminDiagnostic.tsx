@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, RefreshCw, Trash2 } from 'lucide-react';
 import { useTemplates } from '@/templates/store';
+import { isSupabaseConfigured } from '@/utils/supabaseClient';
 
 /**
  * Diagnostic panel — reads from the templates store (connected to Supabase) and
@@ -21,7 +22,7 @@ interface Row {
 }
 
 export function AdminDiagnostic() {
-  const { templates, resetAll } = useTemplates({ includeHidden: true });
+  const { templates, resetAll, origin, error, refresh } = useTemplates({ includeHidden: true, isAdmin: true });
   const [rows, setRows] = useState<Row[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -36,7 +37,7 @@ export function AdminDiagnostic() {
     return acc + size;
   }, 0);
 
-  const refresh = () => {
+  const refreshRows = () => {
     try {
       const next: Row[] = customTemplates.map((t: any) => {
         const url: string = t?.customImage ?? '';
@@ -58,7 +59,7 @@ export function AdminDiagnostic() {
   };
 
   useEffect(() => {
-    if (open) refresh();
+    if (open) refreshRows();
   }, [open, templates]);
 
   const deleteAllCustom = async () => {
@@ -88,12 +89,43 @@ export function AdminDiagnostic() {
           أداة التشخيص
         </h3>
         <div className="flex gap-2">
-          <button onClick={refresh} className="btn-ghost text-sm" title="تحديث">
+          <button onClick={() => { void refresh(); refreshRows(); }} className="btn-ghost text-sm" title="تحديث">
             <RefreshCw className="h-4 w-4" />
             <span>تحديث</span>
           </button>
           <button onClick={() => setOpen(false)} className="btn-ghost text-sm">إغلاق</button>
         </div>
+      </div>
+
+      <div
+        className={
+          'rounded-xl p-3 text-xs font-bold ' +
+          (!isSupabaseConfigured || error
+            ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+            : 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300')
+        }
+      >
+        <div className="flex items-center gap-2">
+          {!isSupabaseConfigured || error ? (
+            <AlertCircle className="h-4 w-4 shrink-0" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+          )}
+          <span>
+            {!isSupabaseConfigured
+              ? 'قاعدة البيانات غير مهيّأة — متغيرات NEXT_PUBLIC_SUPABASE_URL / ANON_KEY مفقودة'
+              : error
+                ? 'تعذّر الاتصال بقاعدة البيانات — يتم عرض النسخة المحلية'
+                : origin === 'supabase'
+                  ? 'متصل بقاعدة البيانات — البيانات المعروضة من Supabase'
+                  : 'جارٍ التحميل من قاعدة البيانات…'}
+          </span>
+        </div>
+        {error && (
+          <div className="mt-1 font-mono font-normal break-all opacity-80" dir="ltr">
+            {error}
+          </div>
+        )}
       </div>
 
       <div className="text-xs text-ink-500 dark:text-ink-400 space-y-1">

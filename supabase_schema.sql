@@ -31,7 +31,16 @@ CREATE TABLE IF NOT EXISTS templates (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- 2b. Deterministic gallery ordering (the client orders by created_at, id).
+--     Safe to re-run on existing projects.
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
+UPDATE templates SET created_at = now() WHERE created_at IS NULL;
+CREATE INDEX IF NOT EXISTS templates_created_at_idx ON templates (created_at, id);
+
 -- 3. Create overrides table
+--    NOTE: overrides only apply to built-in (seed) templates, so there is
+--    intentionally NO `source` column here — a seed's artwork cannot change.
+--    Custom (uploaded) templates keep their `source` in the templates table.
 CREATE TABLE IF NOT EXISTS overrides (
   id TEXT PRIMARY KEY,
   title TEXT,
@@ -106,9 +115,19 @@ CREATE POLICY "Public read hero_overrides"
 -- ALTER TABLE hero_overrides ADD CONSTRAINT bg_image_not_huge
 --   CHECK (bg_image IS NULL OR length(bg_image) < 2097152);
 
--- 10. Enable Supabase Realtime for all tables to push live database changes to clients
-ALTER PUBLICATION supabase_realtime ADD TABLE settings;
-ALTER PUBLICATION supabase_realtime ADD TABLE templates;
-ALTER PUBLICATION supabase_realtime ADD TABLE overrides;
-ALTER PUBLICATION supabase_realtime ADD TABLE hero_overrides;
+-- 10. Enable Supabase Realtime for all tables to push live database changes to clients.
+--     Idempotent: ADD TABLE fails if the table is already in the publication,
+--     so each one is guarded (lets this whole script be re-run safely).
+DO $$
+DECLARE t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['settings', 'templates', 'overrides', 'hero_overrides'] LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_publication_tables
+      WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = t
+    ) THEN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', t);
+    END IF;
+  END LOOP;
+END $$;
 

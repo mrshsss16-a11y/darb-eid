@@ -130,7 +130,7 @@ export function EditorClient({ templateId }: Props) {
           filename: `darb-eid-${template?.id}-${Date.now()}.${fmt}`,
           width: dims.w,
           height: dims.h,
-          pixelRatio: 2,
+          // pixelRatio: chosen by exportImage.pickPixelRatio (2 for square/post, 1.5 for story)
         });
       } finally {
         setBusy(null);
@@ -153,7 +153,7 @@ export function EditorClient({ templateId }: Props) {
           filename: `darb-eid-${template?.id}.png`,
           width: dims.w,
           height: dims.h,
-          pixelRatio: 2,
+          // pixelRatio: chosen by exportImage.pickPixelRatio (2 for square/post, 1.5 for story)
         });
         const blob = await (await fetch(dataUrl)).blob();
         const file = new File([blob], `darb-eid.png`, { type: 'image/png' });

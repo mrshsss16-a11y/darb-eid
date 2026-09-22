@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { OCCASIONS, getOccasion, type OccasionKey, type OccasionMeta } from './types';
-import { supabase } from '@/utils/supabaseClient';
+import {
+  supabase,
+  isSupabaseConfigured,
+  subscribeToTables,
+  describeSupabaseError,
+} from '@/utils/supabaseClient';
 import { useTheme } from '@/components/ThemeProvider';
 import { secureAdminWrite } from '@/utils/adminDbClient';
 
@@ -105,104 +110,164 @@ function loadLocalHeroOverrides(): Overrides {
   }
 }
 
+/** Don't cache more than this in localStorage (bg images can be multi-MB). */
+const MAX_LOCAL_CACHE_BYTES = 1_000_000;
+
 function saveLocalHeroOverrides(o: Overrides) {
+  if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(HERO_STORAGE_KEY, JSON.stringify(o));
-  } catch {}
+    const json = JSON.stringify(o);
+    if (json.length > MAX_LOCAL_CACHE_BYTES) {
+      window.localStorage.removeItem(HERO_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(HERO_STORAGE_KEY, json);
+  } catch (err) {
+    console.warn('[heroCustomization] localStorage cache write skipped:', err);
+  }
 }
 
-export function useHeroOverrides() {
+interface HeroRow {
+  occasion_key: string;
+  eyebrow: string | null;
+  title: string | null;
+  title_accent: string | null;
+  subtitle: string | null;
+  cta: string | null;
+  color: string | null;
+  orb_a: string | null;
+  orb_b: string | null;
+  bg: string | null;
+  bg_image: string | null;
+  bg_overlay_color: string | null;
+  bg_overlay_opacity: number | string | null;
+}
+
+function heroOverrideToRow(key: string, o: HeroOverride): HeroRow {
+  return {
+    occasion_key: key,
+    eyebrow: o.eyebrow ?? null,
+    title: o.title ?? null,
+    title_accent: o.titleAccent ?? null,
+    subtitle: o.subtitle ?? null,
+    cta: o.cta ?? null,
+    color: o.color ?? null,
+    orb_a: o.orbA ?? null,
+    orb_b: o.orbB ?? null,
+    bg: o.bg ?? null,
+    bg_image: o.bgImage ?? null,
+    bg_overlay_color: o.bgOverlayColor ?? null,
+    bg_overlay_opacity: o.bgOverlayOpacity ?? null,
+  };
+}
+
+function heroRowToOverride(row: HeroRow): HeroOverride {
+  return {
+    eyebrow: row.eyebrow ?? undefined,
+    title: row.title ?? undefined,
+    titleAccent: row.title_accent ?? undefined,
+    subtitle: row.subtitle ?? undefined,
+    cta: row.cta ?? undefined,
+    color: row.color ?? undefined,
+    orbA: row.orb_a ?? undefined,
+    orbB: row.orb_b ?? undefined,
+    bg: row.bg ?? undefined,
+    bgImage: row.bg_image ?? undefined,
+    bgOverlayColor: row.bg_overlay_color ?? undefined,
+    bgOverlayOpacity:
+      row.bg_overlay_opacity === null || row.bg_overlay_opacity === undefined
+        ? undefined
+        : Number(row.bg_overlay_opacity),
+  };
+}
+
+export interface UseHeroOverridesOptions {
+  /** Only admin components pass true — enables the one-off local→Supabase migration. */
+  isAdmin?: boolean;
+}
+
+export function useHeroOverrides(opts?: UseHeroOverridesOptions) {
+  const isAdmin = !!opts?.isAdmin;
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const [overrides, setOverrides] = useState<Overrides>({});
   const [hydrated, setHydrated] = useState(false);
 
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     let active = true;
+
     async function loadHero() {
+      const localOverrides = loadLocalHeroOverrides();
+
+      if (!isSupabaseConfigured) {
+        if (!active) return;
+        setOverrides(localOverrides);
+        setError('Supabase is not configured');
+        setHydrated(true);
+        return;
+      }
+
       try {
-        const { data, error } = await supabase
+        const { data, error: qErr } = await supabase
           .from('hero_overrides')
-          .select('*');
+          .select('*')
+          .order('occasion_key', { ascending: true });
 
         if (!active) return;
+        if (qErr) throw new Error(describeSupabaseError(qErr));
 
-        const localOverrides = loadLocalHeroOverrides();
+        const rows = (data ?? []) as unknown as HeroRow[];
+        const parsed: Overrides = {};
+        rows.forEach((row) => {
+          parsed[row.occasion_key as OccasionKey] = heroRowToOverride(row);
+        });
 
-        if (data && !error) {
-          console.log('[heroCustomization] loadHero: loaded', data.length, 'rows from Supabase');
-          
-          // Migrate local storage to Supabase if Supabase is empty but local has data
-          if (data.length === 0 && Object.keys(localOverrides).length > 0) {
-            const toInsert = Object.entries(localOverrides).map(([k, o]) => ({
-              occasion_key: k,
-              eyebrow: o.eyebrow ?? null,
-              title: o.title ?? null,
-              title_accent: o.titleAccent ?? null,
-              subtitle: o.subtitle ?? null,
-              cta: o.cta ?? null,
-              color: o.color ?? null,
-              orb_a: o.orbA ?? null,
-              orb_b: o.orbB ?? null,
-              bg: o.bg ?? null,
-              bg_image: o.bgImage ?? null,
-              bg_overlay_color: o.bgOverlayColor ?? null,
-              bg_overlay_opacity: o.bgOverlayOpacity ?? null,
-            }));
-            await secureAdminWrite('hero_overrides', 'insert', toInsert);
+        // One-off legacy migration — admin tabs only, fully isolated so a
+        // failure can never hide what Supabase actually returned.
+        if (isAdmin && rows.length === 0 && Object.keys(localOverrides).length > 0) {
+          try {
+            await secureAdminWrite(
+              'hero_overrides',
+              'insert',
+              Object.entries(localOverrides).map(([k, o]) => heroOverrideToRow(k, o!)),
+            );
+            if (!active) return;
+            Object.assign(parsed, localOverrides);
+            console.info('[heroCustomization] migrated local hero overrides to Supabase');
+          } catch (err) {
+            console.error('[heroCustomization] local→Supabase migration failed:', err);
           }
-
-          const parsed: Overrides = {};
-          data.forEach((row) => {
-            parsed[row.occasion_key as OccasionKey] = {
-              eyebrow: row.eyebrow === null ? undefined : row.eyebrow,
-              title: row.title === null ? undefined : row.title,
-              titleAccent: row.title_accent === null ? undefined : row.title_accent,
-              subtitle: row.subtitle === null ? undefined : row.subtitle,
-              cta: row.cta === null ? undefined : row.cta,
-              color: row.color === null ? undefined : row.color,
-              orbA: row.orb_a === null ? undefined : row.orb_a,
-              orbB: row.orb_b === null ? undefined : row.orb_b,
-              bg: row.bg === null ? undefined : row.bg,
-              bgImage: row.bg_image === null ? undefined : row.bg_image,
-              bgOverlayColor: row.bg_overlay_color === null ? undefined : row.bg_overlay_color,
-              bgOverlayOpacity: row.bg_overlay_opacity !== null ? Number(row.bg_overlay_opacity) : undefined,
-            };
-          });
-          setOverrides(parsed);
-          saveLocalHeroOverrides(parsed);
-        } else {
-          setOverrides(localOverrides);
         }
+
+        setOverrides(parsed);
+        setError(null);
+        saveLocalHeroOverrides(parsed);
       } catch (err) {
-        console.error('Failed to load hero overrides from Supabase:', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[heroCustomization] failed to load hero overrides from Supabase, using local cache:', msg);
         if (active) {
-          setOverrides(loadLocalHeroOverrides());
+          setOverrides(localOverrides);
+          setError(msg);
         }
       } finally {
         if (active) setHydrated(true);
       }
     }
 
-    loadHero();
+    void loadHero();
 
-    // Subscribe to hero_overrides changes in Supabase
-    const channel = supabase
-      .channel('hero-overrides-realtime-' + Math.random().toString(36).substring(2, 9))
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'hero_overrides' },
-        () => {
-          loadHero();
-        }
-      )
-      .subscribe();
+    // Shared, debounced realtime subscription (one channel for all instances).
+    const unsubscribe = subscribeToTables(['hero_overrides'], () => {
+      void loadHero();
+    });
 
     return () => {
       active = false;
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
-  }, []);
+  }, [isAdmin]);
 
   const setOverride = useCallback(
     async (key: OccasionKey, patch: Partial<HeroOverride>): Promise<{ ok: boolean; error?: string }> => {
@@ -231,21 +296,7 @@ export function useHeroOverrides() {
         if (isDeleted) {
           await secureAdminWrite('hero_overrides', 'delete', undefined, { key: 'occasion_key', val: key });
         } else {
-          await secureAdminWrite('hero_overrides', 'upsert', {
-            occasion_key: key,
-            eyebrow: patch.eyebrow === undefined ? null : patch.eyebrow,
-            title: patch.title === undefined ? null : patch.title,
-            title_accent: patch.titleAccent === undefined ? null : patch.titleAccent,
-            subtitle: patch.subtitle === undefined ? null : patch.subtitle,
-            cta: patch.cta === undefined ? null : patch.cta,
-            color: patch.color === undefined ? null : patch.color,
-            orb_a: patch.orbA === undefined ? null : patch.orbA,
-            orb_b: patch.orbB === undefined ? null : patch.orbB,
-            bg: patch.bg === undefined ? null : patch.bg,
-            bg_image: patch.bgImage === undefined ? null : patch.bgImage,
-            bg_overlay_color: patch.bgOverlayColor === undefined ? null : patch.bgOverlayColor,
-            bg_overlay_opacity: patch.bgOverlayOpacity === undefined ? null : patch.bgOverlayOpacity,
-          });
+          await secureAdminWrite('hero_overrides', 'upsert', heroOverrideToRow(key, patch as HeroOverride));
         }
         console.log('[heroCustomization] Supabase upsert SUCCESS for', key);
         return { ok: true };
@@ -298,6 +349,8 @@ export function useHeroOverrides() {
   return {
     overrides,
     hydrated,
+    /** Last load error (null when healthy). */
+    error,
     setOverride,
     resetOccasion,
     resetAll,

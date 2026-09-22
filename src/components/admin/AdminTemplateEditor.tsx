@@ -9,7 +9,18 @@ import { useTemplates } from '@/templates/store';
 import type { NameStyle, CanvasFormat } from '@/templates/types';
 import { FORMAT_DIMENSIONS, getFormatNameStyle, updateFormatNameStyle } from '@/templates/types';
 import { seedTemplates } from '@/templates/seed';
-import { compressImageFile } from '@/utils/imageProcessing';
+import { uploadImageToStorage, validateImageFile } from '@/utils/imageProcessing';
+import { handleAdminWriteError } from './AdminGate';
+
+/** Map upload-route failures to an actionable Arabic message. */
+function describeUploadError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/upload failed|could not create upload url|server configuration error|bucket/i.test(msg)) {
+    return 'فشل رفع الصورة إلى التخزين: يبدو أن حاوية التخزين "templates" غير موجودة أو غير مهيّأة. شغّل ملف supabase_storage.sql في لوحة Supabase ثم أعد المحاولة.';
+  }
+  return msg || 'فشل رفع الصورة.';
+}
+
 
 interface Props {
   templateId: string;
@@ -23,6 +34,7 @@ interface Props {
 export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
   const { templates, upsertOverride, deleteTemplate, restoreTemplate } = useTemplates({
     includeHidden: true,
+    isAdmin: true,
   });
   const template = useMemo(
     () => templates.find((t) => t.id === templateId),
@@ -70,23 +82,29 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
       setUploadError('الملف ليس صورة.');
       return;
     }
-    if (file.size > 20 * 1024 * 1024) {
-      setUploadError('حجم الملف كبير جداً (الأقصى 20 ميجابايت).');
+    let warning: string | undefined;
+    try {
+      warning = validateImageFile(file);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'ملف غير صالح.');
       return;
     }
 
     setUploadingFormat(fmt);
     setUploadError(null);
     try {
-      const compressed = await compressImageFile(file);
+      // Upload original to Supabase Storage; persist the https URL, not base64.
+      const uploaded = await uploadImageToStorage(file, fmt);
       setCustomImages((prev) => ({
         ...prev,
-        [fmt]: compressed.dataUrl,
+        [fmt]: uploaded.url,
       }));
+      if (warning) setUploadError(warning);
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'فشل تحميل الصورة.');
+      if (!handleAdminWriteError(err)) setUploadError(describeUploadError(err));
     } finally {
       setUploadingFormat(null);
+      e.target.value = '';
     }
   };
 
@@ -212,7 +230,8 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
       setSavedAt(Date.now());
       setTimeout(() => setSavedAt(null), 2500);
     } catch (err) {
-      alert('فشل حفظ التعديلات: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
+      if (!handleAdminWriteError(err))
+        alert('فشل حفظ التعديلات: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
     } finally {
       setSaving(false);
     }
@@ -224,7 +243,8 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
       await deleteTemplate(template.id);
       onDeleted?.();
     } catch (err) {
-      alert('فشل في حذف القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
+      if (!handleAdminWriteError(err))
+        alert('فشل في حذف القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
     }
   };
 
@@ -232,7 +252,8 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
     try {
       await restoreTemplate(template.id);
     } catch (err) {
-      alert('فشل في استعادة القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
+      if (!handleAdminWriteError(err))
+        alert('فشل في استعادة القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
     }
   };
 

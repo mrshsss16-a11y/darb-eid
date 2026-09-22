@@ -11,11 +11,13 @@ import { AdminDiagnostic } from './AdminDiagnostic';
 import { AdminSiteMode } from './AdminSiteMode';
 import { AdminHeroEditor } from './AdminHeroEditor';
 import { cn } from '@/utils/cn';
+import { handleAdminWriteError } from './AdminGate';
 
 export function AdminDashboard() {
   // Admin sees everything, including hidden seed templates.
   const { templates, ready, deleteTemplate, restoreTemplate } = useTemplates({
     includeHidden: true,
+    isAdmin: true,
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showUploader, setShowUploader] = useState(true);
@@ -138,7 +140,7 @@ export function AdminDashboard() {
                             try {
                               await restoreTemplate(t.id);
                             } catch (err) {
-                              alert('فشل في استعادة القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
+                              if (!handleAdminWriteError(err)) alert('فشل في استعادة القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
                             }
                           }}
                           className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-ink-700 text-green-600 hover:text-green-700"
@@ -232,7 +234,7 @@ export function AdminDashboard() {
                     await deleteTemplate(target.id);
                     if (selectedId === target.id) setSelectedId(null);
                   } catch (err) {
-                    alert('فشل في حذف القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
+                    if (!handleAdminWriteError(err)) alert('فشل في حذف القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
                   }
                 }}
                 className="px-5 py-2.5 rounded-xl bg-red-650 text-white hover:bg-red-700 font-bold transition-all text-sm shadow-md shadow-red-600/10 hover:shadow-lg"

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { OCCASIONS, getOccasion, type OccasionKey, type OccasionMeta } from './types';
-import { supabase } from '@/utils/supabaseClient';
+import { supabase, isSupabaseConfigured, subscribeToTables, describeSupabaseError } from '@/utils/supabaseClient';
 import { secureAdminWrite } from '@/utils/adminDbClient';
 
 /**
@@ -21,50 +21,41 @@ export function useActiveOccasion() {
   useEffect(() => {
     let active = true;
     async function loadActive() {
+      if (!isSupabaseConfigured) {
+        if (active) setHydrated(true);
+        return;
+      }
       try {
         const { data, error } = await supabase
           .from('settings')
           .select('value')
           .eq('key', 'active_occasion')
-          .single();
+          .maybeSingle();
 
         if (!active) return;
+        if (error) throw new Error(describeSupabaseError(error));
 
-        if (data && data.value) {
-          const val = data.value as OccasionKey;
-          if (OCCASIONS.some((o) => o.key === val)) {
-            setKey(val);
-          }
+        const val = data?.value as OccasionKey | undefined;
+        if (val && OCCASIONS.some((o) => o.key === val)) {
+          setKey(val);
         }
       } catch (err) {
-        console.error('Failed to load active occasion from Supabase:', err);
+        console.error('[activeOccasion] failed to load active occasion from Supabase:', err);
       } finally {
         if (active) setHydrated(true);
       }
     }
 
-    loadActive();
+    void loadActive();
 
-    // Subscribe to settings changes in Supabase
-    const channel = supabase
-      .channel('active-occasion-realtime-' + Math.random().toString(36).substring(2, 9))
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'settings' },
-        (payload) => {
-          if (payload.new && (payload.new as any).key === 'active_occasion') {
-            const val = (payload.new as any).value as OccasionKey;
-            if (OCCASIONS.some((o) => o.key === val)) {
-              setKey(val);
-            }
-          }
-        }
-      )
-      .subscribe();
+    // Shared, debounced realtime subscription on `settings`.
+    const unsubscribe = subscribeToTables(['settings'], () => {
+      void loadActive();
+    });
 
     return () => {
       active = false;
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, []);
 

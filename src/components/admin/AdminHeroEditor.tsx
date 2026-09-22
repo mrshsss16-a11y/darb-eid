@@ -5,7 +5,19 @@ import { Sparkles, RotateCcw, Save, Paintbrush, ImageIcon, Upload, X, Loader2 } 
 import { useActiveOccasion } from '@/templates/activeOccasion';
 import { useHeroOverrides, type HeroOverride } from '@/templates/heroCustomization';
 import { OCCASIONS, type OccasionKey } from '@/templates/types';
-import { compressImageFile, formatBytes } from '@/utils/imageProcessing';
+import { uploadImageToStorage, validateImageFile, formatBytes } from '@/utils/imageProcessing';
+import { handleAdminWriteError } from './AdminGate';
+import { AdminSessionExpiredError } from '@/utils/adminDbClient';
+
+/** Map upload-route failures to an actionable Arabic message. */
+function describeUploadError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/upload failed|could not create upload url|server configuration error|bucket/i.test(msg)) {
+    return 'فشل رفع الصورة إلى التخزين: يبدو أن حاوية التخزين "templates" غير موجودة أو غير مهيّأة. شغّل ملف supabase_storage.sql في لوحة Supabase ثم أعد المحاولة.';
+  }
+  return msg || 'فشل رفع الصورة.';
+}
+
 import { useTheme } from '@/components/ThemeProvider';
 
 /**
@@ -16,7 +28,7 @@ export function AdminHeroEditor() {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const { occasionKey: activeKey, setActive } = useActiveOccasion();
-  const { setOverride, getResolved, hydrated } = useHeroOverrides();
+  const { setOverride, getResolved, hydrated } = useHeroOverrides({ isAdmin: true });
 
   // Which occasion are we currently editing? Defaults to the active site mode
   // so the editing context matches what the public will see.
@@ -94,12 +106,22 @@ export function AdminHeroEditor() {
       setUploadErr('الرجاء اختيار ملف صورة (PNG / JPG / WebP).');
       return;
     }
+    let warning: string | undefined;
+    try {
+      warning = validateImageFile(file);
+    } catch (err) {
+      setUploadErr(err instanceof Error ? err.message : 'ملف غير صالح.');
+      return;
+    }
     setUploading(true);
     try {
-      const compressed = await compressImageFile(file);
-      setForm((p) => ({ ...p, bgImage: compressed.dataUrl }));
+      // Upload to Supabase Storage; the hero row stores the https URL, not base64.
+      const uploaded = await uploadImageToStorage(file);
+      formDirtyRef.current = true;
+      setForm((p) => ({ ...p, bgImage: uploaded.url }));
+      if (warning) setUploadErr(warning);
     } catch (err) {
-      setUploadErr(err instanceof Error ? err.message : 'فشل قراءة الصورة.');
+      if (!handleAdminWriteError(err)) setUploadErr(describeUploadError(err));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -131,6 +153,11 @@ export function AdminHeroEditor() {
     const result = await setOverride(editingKey, patch);
 
     setSaving(false);
+
+    if (!result.ok && result.error === new AdminSessionExpiredError().message) {
+      handleAdminWriteError(new AdminSessionExpiredError());
+      return;
+    }
 
     if (result.ok) {
       formDirtyRef.current = false;          // allow re-seed with fresh DB data
