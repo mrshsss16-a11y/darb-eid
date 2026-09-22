@@ -14,23 +14,42 @@ import { secureAdminWrite } from '@/utils/adminDbClient';
 
 const DEFAULT_KEY: OccasionKey = 'general';
 
+/**
+ * Several components (Header, Hero, Gallery, admin) mount this hook at once.
+ * Share one in-flight request and cache the result briefly so a page load
+ * costs a single Supabase query instead of one per component.
+ */
+type OccasionResult = { data: { value: string } | null; error: any };
+let occasionRequest: Promise<OccasionResult> | null = null;
+let occasionFetchedAt = 0;
+const OCCASION_CACHE_MS = 5000;
+
+function fetchActiveOccasion(force: boolean): Promise<OccasionResult> {
+  const fresh = Date.now() - occasionFetchedAt < OCCASION_CACHE_MS;
+  if (!force && occasionRequest && fresh) return occasionRequest;
+  occasionFetchedAt = Date.now();
+  const req: Promise<OccasionResult> = Promise.resolve(
+    supabase.from('settings').select('value').eq('key', 'active_occasion').maybeSingle(),
+  ).then((r) => ({ data: r.data as { value: string } | null, error: r.error }));
+  occasionRequest = req;
+  // Do not cache failures.
+  req.then((r) => { if (r.error && occasionRequest === req) occasionFetchedAt = 0; });
+  return req;
+}
+
 export function useActiveOccasion() {
   const [key, setKey] = useState<OccasionKey>(DEFAULT_KEY);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     let active = true;
-    async function loadActive() {
+    async function loadActive(force = false) {
       if (!isSupabaseConfigured) {
         if (active) setHydrated(true);
         return;
       }
       try {
-        const { data, error } = await supabase
-          .from('settings')
-          .select('value')
-          .eq('key', 'active_occasion')
-          .maybeSingle();
+        const { data, error } = await fetchActiveOccasion(force);
 
         if (!active) return;
         if (error) throw new Error(describeSupabaseError(error));
@@ -50,7 +69,7 @@ export function useActiveOccasion() {
 
     // Shared, debounced realtime subscription on `settings`.
     const unsubscribe = subscribeToTables(['settings'], () => {
-      void loadActive();
+      void loadActive(true);
     });
 
     return () => {

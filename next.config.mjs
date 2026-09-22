@@ -89,8 +89,6 @@ const nextConfig = {
         source: '/:file((?:.*)\\.(?:svg|png|jpg|jpeg|gif|webp|ico|avif))',
         headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }],
       },
-      // Next's own hashed bundles are already immutable; make it explicit.
-      { source: '/_next/static/(.*)', headers: immutableCache },
     ];
   },
 };
