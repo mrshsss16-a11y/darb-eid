@@ -9,7 +9,7 @@ import { useTemplates } from '@/templates/store';
 import type { NameStyle, CanvasFormat } from '@/templates/types';
 import { FORMAT_DIMENSIONS, getFormatNameStyle, updateFormatNameStyle } from '@/templates/types';
 import { seedTemplates } from '@/templates/seed';
-import { uploadImageToStorage, validateImageFile } from '@/utils/imageProcessing';
+import { uploadImageToStorage, validateImageFile, deleteUploadedImages } from '@/utils/imageProcessing';
 import { handleAdminWriteError } from './AdminGate';
 
 /** Map upload-route failures to an actionable Arabic message. */
@@ -58,6 +58,18 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
   const [uploadingFormat, setUploadingFormat] = useState<CanvasFormat | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  /**
+   * Storage URLs that this editing session has detached from the template
+   * (replaced or cleared). They are only deleted AFTER a successful save —
+   * until then the database still points at them.
+   */
+  const detachedUrlsRef = useRef<string[]>([]);
+  const rememberDetached = (url: string | undefined) => {
+    if (url && /^https?:\/\//i.test(url) && !detachedUrlsRef.current.includes(url)) {
+      detachedUrlsRef.current.push(url);
+    }
+  };
+
   const squareFileInputRef = useRef<HTMLInputElement | null>(null);
   const storyFileInputRef = useRef<HTMLInputElement | null>(null);
   const postFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -73,6 +85,11 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
       });
     }
   }, [template]);
+
+  // Switching to another template discards un-saved detach bookkeeping.
+  useEffect(() => {
+    detachedUrlsRef.current = [];
+  }, [templateId]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, fmt: CanvasFormat) => {
     const file = e.target.files?.[0];
@@ -95,10 +112,11 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
     try {
       // Upload original to Supabase Storage; persist the https URL, not base64.
       const uploaded = await uploadImageToStorage(file, fmt);
-      setCustomImages((prev) => ({
-        ...prev,
-        [fmt]: uploaded.url,
-      }));
+      setCustomImages((prev) => {
+        // The file this replaces becomes an orphan once the save lands.
+        rememberDetached(prev[fmt]);
+        return { ...prev, [fmt]: uploaded.url };
+      });
       if (warning) setUploadError(warning);
     } catch (err) {
       if (!handleAdminWriteError(err)) setUploadError(describeUploadError(err));
@@ -109,10 +127,10 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
   };
 
   const handleImageClear = (fmt: CanvasFormat) => {
-    setCustomImages((prev) => ({
-      ...prev,
-      [fmt]: '',
-    }));
+    setCustomImages((prev) => {
+      rememberDetached(prev[fmt]);
+      return { ...prev, [fmt]: '' };
+    });
   };
 
   const previewRef = useRef<HTMLDivElement | null>(null);
@@ -227,6 +245,16 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
 
     try {
       await upsertOverride(template.id, patchData);
+      // Save succeeded → the DB no longer references the detached files.
+      // Guard against a URL that was re-selected for another format.
+      if (!isSeed && detachedUrlsRef.current.length) {
+        const stillUsed = new Set(
+          [customImages.square, customImages.story, customImages.post].filter(Boolean) as string[],
+        );
+        const orphans = detachedUrlsRef.current.filter((u) => !stillUsed.has(u));
+        detachedUrlsRef.current = [];
+        void deleteUploadedImages(orphans);
+      }
       setSavedAt(Date.now());
       setTimeout(() => setSavedAt(null), 2500);
     } catch (err) {
@@ -239,8 +267,24 @@ export function AdminTemplateEditor({ templateId, onDeleted }: Props) {
 
   const onDeleteConfirm = async () => {
     setShowDeleteConfirm(false);
+    // Seed templates are only hidden (hidden=true), so never delete their files.
+    const orphans = isSeed
+      ? []
+      : [
+          template.customImage,
+          template.customImages?.square,
+          template.customImages?.story,
+          template.customImages?.post,
+          customImages.square,
+          customImages.story,
+          customImages.post,
+          ...detachedUrlsRef.current,
+        ];
     try {
       await deleteTemplate(template.id);
+      detachedUrlsRef.current = [];
+      // Row is gone → every image it referenced is an orphan. Fire-and-forget.
+      void deleteUploadedImages(orphans);
       onDeleted?.();
     } catch (err) {
       if (!handleAdminWriteError(err))

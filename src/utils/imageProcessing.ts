@@ -139,3 +139,52 @@ export function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
+
+/**
+ * Best-effort cleanup of template images that are no longer referenced.
+ *
+ * Pass the public Storage URLs of the files to remove (data URLs and anything
+ * outside the `templates` bucket are ignored server-side). ALWAYS call this
+ * AFTER the database write that dropped the reference has succeeded — the row
+ * is the source of truth, a leftover object is only wasted bytes.
+ *
+ * Never throws and never reports to the UI: a failed delete must not break an
+ * admin action. Returns the number of objects actually removed (0 on failure).
+ */
+export async function deleteUploadedImages(urls: readonly (string | null | undefined)[]): Promise<number> {
+  const list = Array.from(
+    new Set(
+      urls.filter((u): u is string => typeof u === 'string' && /^https?:\/\//i.test(u.trim())).map((u) => u.trim()),
+    ),
+  );
+  if (list.length === 0) return 0;
+
+  // The endpoint caps each call, so send the list in chunks; a long editing
+  // session that replaced many images must not end up cleaning up nothing.
+  const CHUNK = 12;
+  let deleted = 0;
+  for (let i = 0; i < list.length; i += CHUNK) {
+    deleted += await deleteChunk(list.slice(i, i + CHUNK));
+  }
+  return deleted;
+}
+
+async function deleteChunk(urls: string[]): Promise<number> {
+  try {
+    const res = await fetch('/api/admin/upload', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urls }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok) {
+      console.warn('[imageProcessing] storage cleanup failed:', json?.error ?? res.status);
+      return 0;
+    }
+    if (json.failed?.length) console.warn('[imageProcessing] storage cleanup skipped:', json.failed);
+    return json.deleted?.length ?? 0;
+  } catch (err) {
+    console.warn('[imageProcessing] storage cleanup request failed:', err);
+    return 0;
+  }
+}

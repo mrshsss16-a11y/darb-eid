@@ -6,7 +6,7 @@ import { useTemplates, StorageQuotaError } from '@/templates/store';
 import { handleAdminWriteError } from './AdminGate';
 import type { StoredTemplate, OccasionKey, CanvasFormat } from '@/templates/types';
 import { OCCASIONS } from '@/templates/types';
-import { uploadImageToStorage, validateImageFile, formatBytes } from '@/utils/imageProcessing';
+import { uploadImageToStorage, validateImageFile, formatBytes, deleteUploadedImages } from '@/utils/imageProcessing';
 
 /** A picked image: already uploaded to Supabase Storage, `url` is its public https URL. */
 interface PickedImage {
@@ -56,7 +56,18 @@ export function AdminUploader() {
 
   const { addCustomTemplate } = useTemplates({ includeHidden: true, isAdmin: true });
 
-  const reset = () => {
+  /**
+   * Clear the form.
+   *
+   * `discardUploads` deletes the already-uploaded-but-never-saved files from
+   * Storage — correct for the manual "إعادة تعيين" button, but NOT after a
+   * successful save, where those files are exactly what the new template row
+   * points at.
+   */
+  const reset = (discardUploads = false) => {
+    if (discardUploads) {
+      void deleteUploadedImages([previews.square?.url, previews.story?.url, previews.post?.url]);
+    }
     setPreviews({ square: null, story: null, post: null });
     setOriginalSizes({ square: null, story: null, post: null });
     setError(null);
@@ -89,10 +100,16 @@ export function AdminUploader() {
     try {
       // Upload the original to Supabase Storage; only the https URL is persisted.
       const uploaded = await uploadImageToStorage(file, format);
-      setPreviews((prev) => ({
-        ...prev,
-        [format]: { url: uploaded.url, width: uploaded.width, height: uploaded.height, bytes: uploaded.bytes, warning },
-      }));
+      setPreviews((prev) => {
+        // Replacing a slot: the previous upload was never persisted to the DB,
+        // so it can be dropped from Storage right away.
+        const replaced = prev[format]?.url;
+        if (replaced && replaced !== uploaded.url) void deleteUploadedImages([replaced]);
+        return {
+          ...prev,
+          [format]: { url: uploaded.url, width: uploaded.width, height: uploaded.height, bytes: uploaded.bytes, warning },
+        };
+      });
       
       // Auto-fill title from filename if empty and it's the square/base format
       if (!title.trim() && format === 'square') {
@@ -290,6 +307,8 @@ export function AdminUploader() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              // Never saved anywhere yet → safe to drop now.
+                              void deleteUploadedImages([preview.url]);
                               setPreviews((p) => ({ ...p, [fmt]: null }));
                               setOriginalSizes((s) => ({ ...s, [fmt]: null }));
                             }}
@@ -340,7 +359,7 @@ export function AdminUploader() {
 
           {/* Action buttons */}
           <div className="flex gap-2 mt-6 justify-end border-t border-ink-100 dark:border-ink-800 pt-4">
-            <button onClick={reset} className="btn-ghost">
+            <button onClick={() => reset(true)} className="btn-ghost">
               إعادة تعيين
             </button>
             <button onClick={onSave} className="btn-primary" disabled={busy || !previews.square}>

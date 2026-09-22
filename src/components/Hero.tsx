@@ -21,13 +21,25 @@ function getContrastText(hexColor: string): string {
 }
 
 export function Hero({ selectedOccasionKey }: HeroProps) {
-  const { occasionKey: activeKey } = useActiveOccasion();
-  const { getResolved } = useHeroOverrides();
+  const { occasionKey: activeKey, hydrated: occasionReady } = useActiveOccasion();
+  const { getResolved, hydrated: heroReady } = useHeroOverrides();
   const resolvedKey = selectedOccasionKey ?? activeKey;
   const h = getResolved(resolvedKey);
 
+  /**
+   * Until both the active occasion and the admin's hero overrides have loaded,
+   * the resolved values are the built-in defaults. Painting them first and
+   * swapping a moment later produced a visible flash of the wrong theme, so we
+   * hold the hero invisible (but at its final height) for that first moment.
+   */
+  const ready = occasionReady && heroReady;
+
   return (
-    <section className="relative overflow-hidden">
+    <section
+      className="relative overflow-hidden min-h-[26rem] sm:min-h-[32rem]"
+      style={{ opacity: ready ? 1 : 0, transition: 'opacity 260ms ease-out' }}
+      aria-busy={!ready}
+    >
       {/* Optional background image — sits behind everything with a tinted
           overlay so the hero text stays readable. */}
       {h.bgImage && (

@@ -12,6 +12,7 @@ import { AdminSiteMode } from './AdminSiteMode';
 import { AdminHeroEditor } from './AdminHeroEditor';
 import { cn } from '@/utils/cn';
 import { handleAdminWriteError } from './AdminGate';
+import { deleteUploadedImages } from '@/utils/imageProcessing';
 
 export function AdminDashboard() {
   // Admin sees everything, including hidden seed templates.
@@ -229,10 +230,22 @@ export function AdminDashboard() {
                 type="button"
                 onClick={async () => {
                   const target = deleteTarget;
+                  // Snapshot the Storage URLs BEFORE the row disappears. Seed
+                  // templates are only hidden, so nothing is ever deleted for them.
+                  const orphans = target.isSeed
+                    ? []
+                    : (() => {
+                        const t = templates.find((x) => x.id === target.id);
+                        return t
+                          ? [t.customImage, t.customImages?.square, t.customImages?.story, t.customImages?.post]
+                          : [];
+                      })();
                   setDeleteTarget(null);
                   try {
                     await deleteTemplate(target.id);
                     if (selectedId === target.id) setSelectedId(null);
+                    // Row is gone → the objects are orphans. Fire-and-forget.
+                    void deleteUploadedImages(orphans);
                   } catch (err) {
                     if (!handleAdminWriteError(err)) alert('فشل في حذف القالب: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
                   }

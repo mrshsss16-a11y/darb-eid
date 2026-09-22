@@ -10,6 +10,7 @@ import {
   describeSupabaseError,
 } from '@/utils/supabaseClient';
 import { secureAdminWrite } from '@/utils/adminDbClient';
+import { deleteUploadedImages } from '@/utils/imageProcessing';
 import {
   TEMPLATE_COLUMNS,
   OVERRIDE_COLUMNS,
@@ -460,6 +461,12 @@ export function useTemplates(opts?: UseTemplatesOptions) {
   }, [writeSeedOverride]);
 
   const resetAll = useCallback(async () => {
+    // Snapshot the uploaded image URLs before the rows that reference them go.
+    const orphanUrls = snap.stored.flatMap((s) =>
+      s.source.kind === 'custom'
+        ? [s.source.imageDataUrl, s.source.images?.square, s.source.images?.story, s.source.images?.post]
+        : [],
+    );
     // Remote first, so a failed reset doesn't leave the UI empty while the
     // database still has data.
     try {
@@ -472,7 +479,9 @@ export function useTemplates(opts?: UseTemplatesOptions) {
     setSnapshot({ stored: [], overrides: {} });
     saveStored([]);
     saveOverrides({});
-  }, []);
+    // Best-effort: never blocks or fails the reset.
+    void deleteUploadedImages(orphanUrls.filter((u): u is string => !!u));
+  }, [snap.stored]);
 
   return {
     templates,

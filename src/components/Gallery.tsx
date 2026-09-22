@@ -13,9 +13,17 @@ interface GalleryProps {
 }
 
 export function Gallery({ selectedOccasion, setSelectedOccasion }: GalleryProps) {
-  const { templates } = useTemplates();
+  const { templates, ready: templatesReady } = useTemplates();
   const { occasionKey: activeKey, hydrated } = useActiveOccasion();
   const [userTouched, setUserTouched] = useState(false);
+
+  /**
+   * Before the active occasion and the template list arrive, the filter would
+   * briefly show "all occasions" and every template, then snap to what the
+   * admin configured. Hold that part of the gallery invisible until both are
+   * in, so the first thing the visitor sees is already correct.
+   */
+  const listReady = hydrated && templatesReady;
 
   // When the active site occasion changes (and the user hasn't manually
   // picked a filter yet), default the filter to it. "general" still shows all.
@@ -59,25 +67,30 @@ export function Gallery({ selectedOccasion, setSelectedOccasion }: GalleryProps)
         </span>
       </div>
 
-      <OccasionFilter
-        value={selectedOccasion}
-        onChange={handleChange}
-        counts={counts}
-      />
+      <div
+        style={{ opacity: listReady ? 1 : 0, transition: 'opacity 260ms ease-out' }}
+        aria-busy={!listReady}
+      >
+        <OccasionFilter
+          value={selectedOccasion}
+          onChange={handleChange}
+          counts={counts}
+        />
 
-      {filtered.length === 0 ? (
-        <div className="mt-8 text-center py-16 card-surface">
-          <p className="text-ink-500 dark:text-ink-400">
-            لا توجد قوالب لهذه المناسبة بعد. اطلب من الإدارة إضافة قوالب جديدة.
-          </p>
-        </div>
-      ) : (
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-          {filtered.map((t, i) => (
-            <TemplateCard key={t.id} template={t} index={i} />
-          ))}
-        </div>
-      )}
+        {filtered.length === 0 ? (
+          <div className="mt-8 text-center py-16 card-surface">
+            <p className="text-ink-500 dark:text-ink-400">
+              لا توجد قوالب لهذه المناسبة بعد. اطلب من الإدارة إضافة قوالب جديدة.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
+            {filtered.map((t, i) => (
+              <TemplateCard key={t.id} template={t} index={i} />
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

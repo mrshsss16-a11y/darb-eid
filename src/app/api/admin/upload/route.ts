@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ADMIN_COOKIE, verifySessionToken, isSameOriginRequest } from '@/utils/adminSession';
+import { parseTemplateObjectPaths } from '@/utils/storagePaths';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,6 +23,8 @@ export const dynamic = 'force-dynamic';
  *     → returns { ok:true, signedUrl, token, path, url } ; the browser then does
  *       fetch(signedUrl, { method:'PUT', headers:{ 'Content-Type': contentType }, body: file })
  *       and stores `url` (public URL). No size limit besides the bucket's (8 MB).
+ *
+ * DELETE /api/admin/upload — orphan cleanup, see the handler at the bottom.
  *
  * Only raster images are accepted (PNG/JPEG/WebP/GIF, sniffed by magic bytes).
  * SVG is rejected on purpose: a public bucket serving image/svg+xml is a
@@ -165,6 +168,83 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, url, path, bytes: bytes.length, contentType: mime }, { headers: NO_STORE });
   } catch (err) {
     console.error('[admin/upload] Unhandled error:', err);
+    return bad('Internal Server Error', 500);
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// DELETE — remove orphaned objects from the `templates` bucket
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Never let one call sweep the bucket: a template has at most 3 images. */
+const MAX_DELETE_PATHS = 12;
+
+/**
+ * DELETE /api/admin/upload
+ *
+ * Request  (JSON):  { urls: string[] }   // public URLs *or* bucket-relative paths
+ *                   aliases accepted: `paths`, or a bare string[] body.
+ * Response (200):   { ok: true, deleted: string[], failed: string[], rejected: number }
+ *                   `deleted` / `failed` are bucket-relative paths.
+ * Errors:           401 Unauthorized · 403 Forbidden · 400 bad body · 500 misconfig
+ *
+ * Entries that are not public URLs of THIS project's `templates` bucket are
+ * silently counted in `rejected` rather than failing the call — callers pass
+ * whatever the template row held, which may include legacy data: URLs.
+ *
+ * This endpoint is best-effort by design: callers are expected to fire it
+ * AFTER the database write that removed the reference succeeded, and to ignore
+ * the outcome. A leftover object is harmless; a blocked admin action is not.
+ */
+export async function DELETE(req: Request) {
+  try {
+    if (!(await verifySessionToken(cookies().get(ADMIN_COOKIE)?.value))) return bad('Unauthorized', 401);
+    if (!isSameOriginRequest(req)) return bad('Forbidden', 403);
+
+    const storage = getAdminStorage();
+    if (!storage) {
+      console.error('[admin/upload] DELETE: Supabase env vars missing.');
+      return bad('Server configuration error', 500);
+    }
+
+    const raw = await req.text();
+    if (raw.length > 64 * 1024) return bad('Payload too large', 413);
+    let body: unknown;
+    try {
+      body = raw ? JSON.parse(raw) : null;
+    } catch {
+      return bad('Invalid JSON');
+    }
+
+    const list = Array.isArray(body)
+      ? body
+      : body && typeof body === 'object'
+        ? ((body as Record<string, unknown>).urls ?? (body as Record<string, unknown>).paths)
+        : undefined;
+    if (!Array.isArray(list)) return bad("Provide 'urls' as an array.");
+    if (list.length > MAX_DELETE_PATHS) return bad(`Too many paths (max ${MAX_DELETE_PATHS}).`);
+
+    const { paths, rejected } = parseTemplateObjectPaths(list, process.env.NEXT_PUBLIC_SUPABASE_URL);
+    if (rejected > 0) {
+      console.warn(`[admin/upload] DELETE: ignored ${rejected} value(s) outside the '${BUCKET}' bucket.`);
+    }
+    if (paths.length === 0) {
+      return NextResponse.json({ ok: true, deleted: [], failed: [], rejected }, { headers: NO_STORE });
+    }
+
+    const { data, error } = await storage.from(BUCKET).remove(paths);
+    if (error) {
+      // Not fatal: the DB row is the source of truth, the object is just orphaned.
+      console.error('[admin/upload] DELETE: storage.remove failed:', error.message, paths);
+      return NextResponse.json({ ok: true, deleted: [], failed: paths, rejected }, { headers: NO_STORE });
+    }
+
+    const deleted = (data ?? []).map((o) => o.name);
+    const failed = paths.filter((p) => !deleted.includes(p));
+    if (failed.length) console.warn('[admin/upload] DELETE: objects not removed:', failed);
+    return NextResponse.json({ ok: true, deleted, failed, rejected }, { headers: NO_STORE });
+  } catch (err) {
+    console.error('[admin/upload] DELETE: Unhandled error:', err);
     return bad('Internal Server Error', 500);
   }
 }

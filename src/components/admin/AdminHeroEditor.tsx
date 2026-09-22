@@ -5,7 +5,7 @@ import { Sparkles, RotateCcw, Save, Paintbrush, ImageIcon, Upload, X, Loader2 } 
 import { useActiveOccasion } from '@/templates/activeOccasion';
 import { useHeroOverrides, type HeroOverride } from '@/templates/heroCustomization';
 import { OCCASIONS, type OccasionKey } from '@/templates/types';
-import { uploadImageToStorage, validateImageFile, formatBytes } from '@/utils/imageProcessing';
+import { uploadImageToStorage, validateImageFile, formatBytes, deleteUploadedImages } from '@/utils/imageProcessing';
 import { handleAdminWriteError } from './AdminGate';
 import { AdminSessionExpiredError } from '@/utils/adminDbClient';
 
@@ -82,9 +82,21 @@ export function AdminHeroEditor() {
         bgOverlayOpacity: r.bgOverlayOpacity,
       });
       setLastSeededKey(editingKey);
+      /**
+       * Leaving an occasion without saving: the previous background is still
+       * the one stored in the database, so it must be kept. What is safe to
+       * remove is the freshly uploaded file that was never saved anywhere.
+       */
+      const previousSaved = lastSeededKey ? getResolved(lastSeededKey).bgImage ?? '' : '';
+      const abandonedUpload =
+        lastSeededKey && formDirtyRef.current && form.bgImage && form.bgImage !== previousSaved
+          ? [form.bgImage]
+          : [];
+      detachedBgRef.current = [];
+      if (abandonedUpload.length) void deleteUploadedImages(abandonedUpload);
       formDirtyRef.current = false;
     }
-  }, [editingKey, hydrated, getResolved, lastSeededKey]);
+  }, [editingKey, hydrated, getResolved, lastSeededKey, form.bgImage]);
 
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -118,7 +130,10 @@ export function AdminHeroEditor() {
       // Upload to Supabase Storage; the hero row stores the https URL, not base64.
       const uploaded = await uploadImageToStorage(file);
       formDirtyRef.current = true;
-      setForm((p) => ({ ...p, bgImage: uploaded.url }));
+      setForm((p) => {
+        if (p.bgImage && p.bgImage !== uploaded.url) detachBg(p.bgImage);
+        return { ...p, bgImage: uploaded.url };
+      });
       if (warning) setUploadErr(warning);
     } catch (err) {
       if (!handleAdminWriteError(err)) setUploadErr(describeUploadError(err));
@@ -128,7 +143,22 @@ export function AdminHeroEditor() {
     }
   };
 
-  const removeBgImage = () => update('bgImage', '');
+  /**
+   * Background images live in Supabase Storage. When one is replaced or
+   * cleared we remember the old URL and delete the file only after the row
+   * that referenced it has been saved, so a failed save never loses an image
+   * that is still in use.
+   */
+  const detachedBgRef = useRef<string[]>([]);
+
+  const detachBg = (url: string | undefined) => {
+    if (url && /^https?:/i.test(url)) detachedBgRef.current.push(url);
+  };
+
+  const removeBgImage = () => {
+    detachBg(form.bgImage);
+    update('bgImage', '');
+  };
 
   const onSave = useCallback(async () => {
     console.log('[HeroEditor] onSave FIRED (v2 — async+await)', { editingKey });
@@ -160,6 +190,10 @@ export function AdminHeroEditor() {
     }
 
     if (result.ok) {
+      // The saved row no longer points at these files — remove them.
+      const orphans = detachedBgRef.current.filter((u) => u !== form.bgImage);
+      detachedBgRef.current = [];
+      if (orphans.length) void deleteUploadedImages(orphans);
       formDirtyRef.current = false;          // allow re-seed with fresh DB data
       setSavedAt(Date.now());
       setTimeout(() => setSavedAt(null), 2500);
